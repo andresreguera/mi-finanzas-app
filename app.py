@@ -5,7 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Finanzas Inteligente", page_icon="🧠", layout="centered")
+st.set_page_config(page_title="Finanzas Pro", page_icon="💶", layout="centered")
 
 # --- CONEXIÓN ---
 @st.cache_resource
@@ -26,68 +26,63 @@ except:
     st.error("Falta hoja Objetivos")
     st.stop()
 
-# --- CEREBRO INTELIGENTE DE NÚMEROS ---
-def limpiar_input_inteligente(valor):
+# --- FUNCIONES DE LIMPIEZA CRÍTICAS ---
+
+def procesar_dato_del_excel(valor):
     """
-    Distingue automáticamente entre miles y decimales.
-    - 9,14   -> 9.14 (Decimal)
-    - 10.50  -> 10.50 (Decimal)
-    - 4.000  -> 4000 (Mil)
+    ESTA ES LA CORRECCIÓN CLAVE.
+    Convierte lo que viene del Excel (formato español) a número Python.
+    Excel: "9,14" -> Python: 9.14
+    Excel: "1.000,00" -> Python: 1000.0
     """
-    if valor is None or str(valor).strip() == "": return 0.0
-    
-    # Si ya es número, devolverlo
-    if isinstance(valor, (int, float)): return float(valor)
+    if isinstance(valor, (int, float)):
+        return float(valor)
     
     s = str(valor).strip()
+    if not s: return 0.0
+
     try:
-        # CASO 1: Tiene COMA (Formato Español explícito) -> 9,14 o 1.000,50
-        if "," in s:
-            # Borramos puntos de miles (1.000 -> 1000)
-            s = s.replace(".", "")
-            # Cambiamos coma a punto decimal
-            s = s.replace(",", ".")
-            return float(s)
-            
-        # CASO 2: Tiene PUNTO pero NO coma (Formato Híbrido)
-        elif "." in s:
-            partes = s.split(".")
-            decimales = partes[-1]
-            
-            # Si tiene exactamente 3 "decimales" (Ej: 4.000), asumimos que son MILES
-            if len(decimales) == 3 and len(partes) > 1:
-                s = s.replace(".", "") # 4.000 -> 4000
-                return float(s)
-            else:
-                # Si tiene 2 o 1 decimal (Ej: 10.50 o 10.5), es DECIMAL
-                return float(s)
-        
-        # CASO 3: Número entero simple (Ej: 50)
-        else:
-            return float(s)
+        # Lógica Española Estricta para leer del Excel
+        # 1. Los puntos son de miles -> Fuera
+        s = s.replace(".", "") 
+        # 2. Las comas son decimales -> Cambiar a punto
+        s = s.replace(",", ".")
+        return float(s)
+    except:
+        return 0.0
+
+def limpiar_input(valor):
+    """
+    Permite escribir con punto o coma, pero prioriza decimales.
+    """
+    if not valor: return 0.0
+    s = str(valor).strip()
+    try:
+        # Si usas coma, es decimal
+        s = s.replace(",", ".")
+        return float(s)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Siempre muestra: 1.234,56 €
-    return "{:,.2f} €".format(numero).replace(",", "X").replace(".", ",").replace("X", ".")
-
-# --- BARRA LATERAL ---
-with st.sidebar:
-    st.header("⚙️ Opciones")
-    if st.button("⚠️ BORRAR TODO (RESETEAR)", type="primary"):
-        hoja1.clear()
-        hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
-        st.cache_data.clear()
-        st.success("Tabla limpia. Los errores antiguos se han borrado.")
-        st.rerun()
+    # Muestra 1.234,56 €
+    try:
+        return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00 €"
 
 # --- INTERFAZ ---
-st.title("💰 Mi Cartera")
+st.title("💶 Mi Cartera")
+
+# Botón para forzar recarga de datos si algo se ve mal
+if st.sidebar.button("🔄 Actualizar Cálculos"):
+    st.cache_data.clear()
+    st.rerun()
+
 tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 
 with tab1:
-    # 1. Cargar
+    # 1. Cargar Datos
     try:
         data = hoja1.get_all_records()
         df = pd.DataFrame(data)
@@ -96,14 +91,14 @@ with tab1:
     ingresos, gastos, saldo = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # Usamos el limpiador inteligente en todo lo que viene del Excel
-        df['Monto_Limpio'] = df['Monto'].apply(limpiar_input_inteligente)
+        # APLICAMOS LA CORRECCIÓN AL LEER
+        df['Monto_Real'] = df['Monto'].apply(procesar_dato_del_excel)
         
-        ingresos = df[df['Monto_Limpio'] > 0]['Monto_Limpio'].sum()
-        gastos = df[df['Monto_Limpio'] < 0]['Monto_Limpio'].sum()
-        saldo = df['Monto_Limpio'].sum()
+        ingresos = df[df['Monto_Real'] > 0]['Monto_Real'].sum()
+        gastos = df[df['Monto_Real'] < 0]['Monto_Real'].sum()
+        saldo = df['Monto_Real'].sum()
 
-    # 2. Tarjetas
+    # 2. Mostrar Tarjetas
     c1, c2, c3 = st.columns(3)
     c1.metric("Saldo Actual", formato_visual(saldo))
     c2.metric("Ingresos", formato_visual(ingresos))
@@ -116,51 +111,61 @@ with tab1:
     with st.form("mov"):
         c_a, c_b = st.columns(2)
         fecha = c_a.date_input("Fecha")
-        monto_txt = c_a.text_input("Cantidad", placeholder="Ej: 9,14 o 10.50")
+        monto_in = c_a.text_input("Cantidad (€)", placeholder="Ej: 9,14")
         
         tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
         cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
         desc = st.text_input("Concepto")
         
-        # Previsualización INTELIGENTE
-        val_real = limpiar_input_inteligente(monto_txt)
-        if monto_txt:
-            st.info(f"🔢 El sistema detecta: **{val_real}**")
+        val_guardar = limpiar_input(monto_in)
+        if monto_in:
+            st.info(f"Se guardará: {formato_visual(val_guardar)}")
 
         if st.form_submit_button("Guardar"):
-            if val_real > 0:
-                final = -val_real if tipo == "Gasto" else val_real
+            if val_guardar > 0:
+                final = -val_guardar if tipo == "Gasto" else val_guardar
+                # Al Excel mandamos el número con punto (formato estándar internacional)
+                # O si prefieres forzar coma, lo convertimos a string. 
+                # Pero lo mejor es mandar float y que Excel lo formatee.
                 hoja1.append_row([str(fecha), cat, desc, final, tipo])
                 st.success("Guardado.")
+                st.cache_data.clear() # Limpiamos caché para ver el cambio al instante
                 st.rerun()
             else:
-                st.warning("Introduce una cantidad válida.")
+                st.warning("Cantidad mayor a 0")
 
-    # 4. Historial
+    # 4. Historial (Usando los datos corregidos)
     if not df.empty:
         df_show = df.copy()
-        df_show['Monto'] = df_show['Monto_Limpio'].apply(formato_visual)
-        cols = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
-        st.dataframe(df_show[cols].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
+        df_show['Monto_Visual'] = df_show['Monto_Real'].apply(formato_visual)
+        
+        # Seleccionamos columnas seguras
+        cols_final = ['Fecha', 'Categoría', 'Monto_Visual', 'Concepto']
+        # Mapeo si los nombres en Excel son distintos
+        df_show = df_show.rename(columns={'Monto_Visual': 'Monto'})
+        
+        cols_existentes = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
+        st.dataframe(df_show[cols_existentes].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
 with tab2:
-    st.header("🎯 Metas")
-    with st.form("obj"):
+    st.header("Metas")
+    with st.form("meta"):
         nom = st.text_input("Meta")
-        obj_txt = st.text_input("Cantidad", placeholder="Ej: 1500,00")
-        f_fin = st.date_input("Fecha Fin")
-        val_obj = limpiar_input_inteligente(obj_txt)
-        if st.form_submit_button("Crear") and val_obj > 0:
-            hoja_obj.append_row([nom, val_obj, str(f_fin), str(date.today())])
+        cant = st.text_input("Cantidad", placeholder="Ej: 1500,00")
+        fin = st.date_input("Fecha Fin")
+        val = limpiar_input(cant)
+        
+        if st.form_submit_button("Crear") and val > 0:
+            hoja_obj.append_row([nom, val, str(fin), str(date.today())])
             st.rerun()
 
     try:
         dfo = pd.DataFrame(hoja_obj.get_all_records())
         if not dfo.empty:
             st.divider()
-            sueldo = limpiar_input_inteligente(st.text_input("Sueldo mensual", "1500"))
+            sueldo = limpiar_input(st.text_input("Sueldo Mensual", "1500"))
             for i, r in dfo.iterrows():
-                m = limpiar_input_inteligente(r['Monto_Meta'])
+                m = procesar_dato_del_excel(r['Monto_Meta'])
                 dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
                 ahorro = m / max(dias/30, 0.1)
                 st.info(f"**{r['Objetivo']}**: Ahorra {formato_visual(ahorro)}/mes")
