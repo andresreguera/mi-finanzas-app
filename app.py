@@ -5,7 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Finanzas Pro", page_icon="💰", layout="centered")
+st.set_page_config(page_title="Finanzas Final", page_icon="💰", layout="centered")
 
 # --- CONEXIÓN ---
 @st.cache_resource
@@ -30,19 +30,18 @@ except:
 
 def procesar_texto_a_numero(valor):
     """
-    Convierte texto "4.139,14" -> Número 4139.14
+    Convierte texto del Excel (formato español) a número Python.
+    "4139,14" -> 4139.14
     """
     texto = str(valor).strip()
     if not texto: return 0.0
     try:
-        # Quitamos puntos de miles y cambiamos coma a punto
         texto = texto.replace(".", "").replace(",", ".")
         return float(texto)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Formato bonito: 4.139,14 €
     try:
         return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
     except:
@@ -55,59 +54,45 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-# --- CÁLCULOS GLOBALES (Antes de las pestañas) ---
-# Necesitamos saber el saldo ANTES de entrar a Objetivos para hacer la resta.
-
-saldo_actual = 0.0
-ingresos_totales = 0.0
-gastos_totales = 0.0
-df_movimientos = pd.DataFrame()
-
-try:
-    # 1. Leemos Movimientos
-    data = hoja1.get_all_records(numericise_ignore=['all'])
-    df_movimientos = pd.DataFrame(data)
-
-    if not df_movimientos.empty and 'Monto' in df_movimientos.columns:
-        # Convertimos columna Monto
-        df_movimientos['Monto_Calc'] = df_movimientos['Monto'].apply(procesar_texto_a_numero)
-        
-        ingresos_totales = df_movimientos[df_movimientos['Monto_Calc'] > 0]['Monto_Calc'].sum()
-        gastos_totales = df_movimientos[df_movimientos['Monto_Calc'] < 0]['Monto_Calc'].sum()
-        saldo_actual = df_movimientos['Monto_Calc'].sum()
-except Exception as e:
-    st.error(f"Error al calcular saldo: {e}")
-
-
 # --- INTERFAZ ---
-st.title("💰 Mi Cartera Inteligente")
+st.title("💰 Mi Cartera")
 
-# Mostramos el resumen arriba del todo para tenerlo siempre presente
-c1, c2, c3 = st.columns(3)
-c1.metric("Saldo Disponible", formato_visual(saldo_actual))
-c2.metric("Ingresos Totales", formato_visual(ingresos_totales))
-c3.metric("Gastos Totales", formato_visual(gastos_totales), delta_color="inverse")
+tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 
-st.divider()
-
-tab1, tab2 = st.tabs(["📝 Registro Diario", "🎯 Calculadora de Metas"])
-
-# === PESTAÑA 1: DIARIO ===
+# === PESTAÑA DIARIO ===
 with tab1:
+    try:
+        data = hoja1.get_all_records(numericise_ignore=['all'])
+        df = pd.DataFrame(data)
+    except: df = pd.DataFrame()
+
+    ingresos, gastos, saldo = 0.0, 0.0, 0.0
+
+    if not df.empty and 'Monto' in df.columns:
+        df['Monto_Calc'] = df['Monto'].apply(procesar_texto_a_numero)
+        ingresos = df[df['Monto_Calc'] > 0]['Monto_Calc'].sum()
+        gastos = df[df['Monto_Calc'] < 0]['Monto_Calc'].sum()
+        saldo = df['Monto_Calc'].sum()
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Saldo Actual", formato_visual(saldo))
+    c2.metric("Ingresos", formato_visual(ingresos))
+    c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
+
+    st.divider()
+
     st.subheader("Nuevo Movimiento")
     with st.form("mov"):
         c_a, c_b = st.columns(2)
         fecha = c_a.date_input("Fecha")
-        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 50,00")
+        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 4139,14")
         
         tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
         cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
         desc = st.text_input("Concepto")
         
         val_guardar = procesar_texto_a_numero(monto_txt)
-        
-        if monto_txt:
-            st.caption(f"🔢 Se guardará como: {val_guardar}")
+        if monto_txt: st.info(f"🔢 Se guardará como: **{val_guardar}**")
 
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
@@ -120,90 +105,69 @@ with tab1:
             else:
                 st.warning("Introduce una cantidad válida.")
 
-    # Tabla Historial
-    if not df_movimientos.empty:
-        df_show = df_movimientos.copy()
+    if not df.empty:
+        df_show = df.copy()
         df_show['Monto'] = df_show['Monto_Calc'].apply(formato_visual)
         cols = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
         st.dataframe(df_show[cols].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-# === PESTAÑA 2: OBJETIVOS (LA LÓGICA NUEVA) ===
+# === PESTAÑA OBJETIVOS (CON ELIMINAR) ===
 with tab2:
-    st.header("🎯 Planificador de Metas")
+    st.header("🎯 Metas")
     
-    st.info(f"💡 El sistema usará tu saldo disponible (**{formato_visual(saldo_actual)}**) para reducir lo que necesitas ahorrar.")
-
-    # Formulario Crear Meta
-    with st.expander("➕ Crear Nueva Meta"):
+    # Formulario Crear
+    with st.expander("➕ Añadir Nueva Meta", expanded=False):
         with st.form("obj"):
-            nom = st.text_input("Nombre de la meta", placeholder="Ej: Coche Nuevo")
-            cant = st.text_input("Precio Total (€)", placeholder="Ej: 15000,00")
-            fin = st.date_input("Fecha Límite")
+            nom = st.text_input("Meta")
+            cant = st.text_input("Cantidad (€)", placeholder="Ej: 1500,00")
+            fin = st.date_input("Fecha Fin")
             val = procesar_texto_a_numero(cant)
             
-            if st.form_submit_button("Guardar Meta") and val > 0:
+            if st.form_submit_button("Crear") and val > 0:
                 val_excel = str(val).replace(".", ",")
                 hoja_obj.append_row([nom, val_excel, str(fin), str(date.today())])
+                st.success("¡Meta creada!")
+                st.cache_data.clear()
                 st.rerun()
 
-    # CÁLCULOS
+    # Listado de Metas con Botón de Borrar
     try:
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
         dfo = pd.DataFrame(do)
         
         if not dfo.empty:
             st.divider()
+            sueldo = procesar_texto_a_numero(st.text_input("Sueldo Mensual (para calcular)", "1500"))
             
-            # Input de Sueldo para calcular esfuerzo
-            sueldo_input = st.text_input("💰 Tu Ingreso Mensual (para calcular esfuerzo)", value="1500")
-            sueldo_mensual = procesar_texto_a_numero(sueldo_input)
-
-            st.subheader("Tu Plan de Ahorro")
-
+            # Recorremos las metas
             for i, r in dfo.iterrows():
-                precio_meta = procesar_texto_a_numero(r['Monto_Meta'])
+                m = procesar_texto_a_numero(r['Monto_Meta'])
+                dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
+                ahorro = m / max(dias/30, 0.1)
                 
-                # --- AQUÍ ESTÁ LA NUEVA FÓRMULA ---
-                # Restamos lo que ya tienes ahorrado al precio de la meta
-                falta_por_ahorrar = precio_meta - saldo_actual
-                
-                # Fechas
-                dias_restantes = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
-                meses_restantes = max(dias_restantes / 30, 0.1) # Evitar división por cero
-
+                # Usamos columnas para poner el botón a la derecha
                 with st.container(border=True):
-                    col_izq, col_der = st.columns([3, 1])
+                    col_info, col_borrar = st.columns([4, 1])
                     
-                    col_izq.markdown(f"### {r['Objetivo']}")
-                    col_izq.write(f"Precio Total: **{formato_visual(precio_meta)}**")
-                    
-                    if falta_por_ahorrar <= 0:
-                        # Si tu saldo ya cubre la meta
-                        col_izq.success(f"🎉 ¡Felicidades! Tienes **{formato_visual(saldo_actual)}**, suficiente para pagar esto.")
-                    
-                    elif dias_restantes > 0:
-                        # Cálculo mensual basado en LO QUE FALTA
-                        ahorro_mensual = falta_por_ahorrar / meses_restantes
-                        
-                        col_izq.markdown(f"Te faltan: **{formato_visual(falta_por_ahorrar)}** (Usando tu saldo actual)")
-                        
-                        # Análisis de esfuerzo según tu sueldo
-                        pct_esfuerzo = 0
-                        if sueldo_mensual > 0:
-                            pct_esfuerzo = (ahorro_mensual / sueldo_mensual) * 100
-                        
-                        msg = f"Debes ahorrar **{formato_visual(ahorro_mensual)} / mes**"
-                        
-                        if pct_esfuerzo > 50:
-                            col_izq.error(f"{msg} (⚠️ {pct_esfuerzo:.0f}% de tu ingreso)")
-                        elif pct_esfuerzo > 20:
-                            col_izq.warning(f"{msg} (📊 {pct_esfuerzo:.0f}% de tu ingreso)")
+                    with col_info:
+                        st.markdown(f"### {r['Objetivo']}")
+                        st.write(f"Meta: **{formato_visual(m)}**")
+                        if dias > 0:
+                            st.info(f"Ahorra **{formato_visual(ahorro)}/mes**")
                         else:
-                            col_izq.success(f"{msg} (✅ {pct_esfuerzo:.0f}% de tu ingreso)")
-                            
-                        col_der.metric("Meses", f"{meses_restantes:.1f}")
-                    else:
-                        col_izq.error("¡La fecha límite ha pasado!")
-
-    except Exception as e:
-        st.info("No hay metas creadas todavía.")
+                            st.success("¡Tiempo cumplido!")
+                    
+                    with col_borrar:
+                        st.write("") # Espacio para bajar el botón
+                        # El truco: key=f"del_{i}" hace que cada botón sea único
+                        if st.button("🗑️", key=f"del_{i}", help="Eliminar esta meta"):
+                            # Borramos la fila en Excel (i + 2 porque Excel tiene encabezados)
+                            hoja_obj.delete_rows(i + 2)
+                            st.toast("Meta eliminada correctamente")
+                            st.cache_data.clear()
+                            st.rerun()
+        else:
+            st.info("No tienes metas activas.")
+            
+    except Exception as e: 
+        st.error(f"Error cargando metas: {e}")
