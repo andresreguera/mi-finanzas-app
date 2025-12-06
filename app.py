@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
+import plotly.express as px  # <--- IMPORTANTE: Librería para gráficos
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Finanzas Final", page_icon="💰", layout="centered")
@@ -30,29 +31,20 @@ except:
 
 def procesar_texto_a_numero(valor):
     """
-    ESTA ES LA SOLUCIÓN.
-    Fuerza que cualquier coma que venga del Excel se convierta en punto decimal.
-    Entrada: "4139,14" (Texto del Excel) -> Salida: 4139.14 (Número Python)
+    Convierte texto del Excel (formato español) a número Python.
+    "4139,14" -> 4139.14
     """
-    # 1. Convertimos a texto obligatoriamente para manipularlo
     texto = str(valor).strip()
-    
     if not texto: return 0.0
-
     try:
-        # SI TIENE COMA, ES DECIMAL.
-        # Paso A: Quitamos cualquier punto que haya (por si acaso hay miles: 1.000,50)
-        texto = texto.replace(".", "")
-        
-        # Paso B: La coma se convierte en el ÚNICO punto decimal
-        texto = texto.replace(",", ".")
-        
+        # Quitamos puntos de miles y cambiamos coma a punto
+        texto = texto.replace(".", "").replace(",", ".")
         return float(texto)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Esto solo pinta el número bonito: 4.139,14 €
+    # Formato español bonito: 4.139,14 €
     try:
         return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
     except:
@@ -74,8 +66,6 @@ tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 with tab1:
     # 1. Cargar Datos
     try:
-        # TRUCO: numericise_ignore=['all'] obliga a leer todo como TEXTO
-        # Así evitamos que Google intente adivinar el número y falle.
         data = hoja1.get_all_records(numericise_ignore=['all'])
         df = pd.DataFrame(data)
     except: df = pd.DataFrame()
@@ -83,9 +73,10 @@ with tab1:
     ingresos, gastos, saldo = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # APLICAMOS LA FUERZA BRUTA A LA COLUMNA MONTO
+        # Convertimos la columna Monto
         df['Monto_Calc'] = df['Monto'].apply(procesar_texto_a_numero)
         
+        # Filtramos Ingresos y Gastos
         ingresos = df[df['Monto_Calc'] > 0]['Monto_Calc'].sum()
         gastos = df[df['Monto_Calc'] < 0]['Monto_Calc'].sum()
         saldo = df['Monto_Calc'].sum()
@@ -98,18 +89,37 @@ with tab1:
 
     st.divider()
 
+    # --- NUEVO: GRÁFICO DE GASTOS ---
+    if not df.empty and gastos < 0:
+        st.subheader("📊 ¿En qué se va mi dinero?")
+        
+        # Filtramos solo los gastos (números negativos)
+        df_gastos = df[df['Monto_Calc'] < 0].copy()
+        # Los convertimos a positivo para el gráfico (para que no salga negativo)
+        df_gastos['Monto_Abs'] = df_gastos['Monto_Calc'].abs()
+        
+        # Agrupamos por Categoría
+        df_agrupado = df_gastos.groupby("Categoría")['Monto_Abs'].sum().reset_index()
+        
+        # Creamos el gráfico de tarta (Donut)
+        fig = px.pie(df_agrupado, values='Monto_Abs', names='Categoría', hole=0.4,
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig.update_traces(textinfo='percent+label')
+        
+        st.plotly_chart(fig, use_container_width=True)
+        st.divider()
+
     # 3. Formulario
     st.subheader("Nuevo Movimiento")
     with st.form("mov"):
         c_a, c_b = st.columns(2)
         fecha = c_a.date_input("Fecha")
-        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 4139,14")
+        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 45,50")
         
         tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
-        cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
+        cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina", "Ropa", "Salud"])
         desc = st.text_input("Concepto")
         
-        # Procesamos lo que escribes igual que lo que leemos del Excel
         val_guardar = procesar_texto_a_numero(monto_txt)
         
         if monto_txt:
@@ -118,8 +128,7 @@ with tab1:
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
                 final = -val_guardar if tipo == "Gasto" else val_guardar
-                # Al guardar, convertimos a string con coma para que Excel lo vea "Español"
-                valor_excel = str(final).replace(".", ",")
+                valor_excel = str(final).replace(".", ",") # Convertir a formato español para Excel
                 
                 hoja1.append_row([str(fecha), cat, desc, valor_excel, tipo])
                 st.success("Guardado.")
@@ -139,9 +148,9 @@ with tab1:
 with tab2:
     st.header("🎯 Metas")
     with st.form("obj"):
-        nom = st.text_input("Meta")
-        cant = st.text_input("Cantidad", placeholder="Ej: 1500,00")
-        fin = st.date_input("Fecha Fin")
+        nom = st.text_input("Meta", placeholder="Ej: Coche")
+        cant = st.text_input("Cantidad (€)", placeholder="Ej: 15000,00", help="El dinero total que necesitas")
+        fin = st.date_input("Fecha Límite")
         val = procesar_texto_a_numero(cant)
         
         if st.form_submit_button("Crear") and val > 0:
@@ -150,7 +159,6 @@ with tab2:
             st.rerun()
 
     try:
-        # Leemos también objetivos como texto puro
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
         dfo = pd.DataFrame(do)
         if not dfo.empty:
@@ -160,5 +168,5 @@ with tab2:
                 m = procesar_texto_a_numero(r['Monto_Meta'])
                 dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
                 ahorro = m / max(dias/30, 0.1)
-                st.info(f"**{r['Objetivo']}**: Ahorra {formato_visual(ahorro)}/mes")
+                st.info(f"**{r['Objetivo']}**: Necesitas ahorrar **{formato_visual(ahorro)}/mes**")
     except: pass
