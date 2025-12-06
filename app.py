@@ -8,14 +8,42 @@ import plotly.express as px
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Mi Finanzas", page_icon="💰", layout="centered")
 
-# --- 🎨 TRUCO DE DISEÑO: MODO LIMPIO (SIN BARRAS NI MENÚS) ---
+# --- 🎨 ESTILO "MODO APP NATIVA" (CORREGIDO PARA IPHONE) ---
+# Usamos selectores específicos [data-testid] y !important para forzar el ocultado
 hide_streamlit_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            </style>
-            """
+<style>
+    /* Ocultar la barra superior (Menú hamburguesa, perfil, Running...) */
+    [data-testid="stToolbar"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* Ocultar la decoración de colores de arriba del todo */
+    [data-testid="stDecoration"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* Ocultar el pie de página */
+    footer {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* Ocultar el header contenedor */
+    header {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* ELIMINAR EL HUECO BLANCO DE ARRIBA */
+    /* Al quitar el menú, queda un espacio vacío feo. Esto sube el contenido. */
+    .block-container {
+        padding-top: 0rem !important;
+        padding-bottom: 5rem !important; /* Espacio abajo para poder hacer scroll cómodo */
+    }
+</style>
+"""
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- CONEXIÓN ---
@@ -218,7 +246,6 @@ with tab3:
                         if falta > 0 and dias > 0:
                             ahorro = falta / meses
                             st.metric("Ahorro Mensual", formato_visual(ahorro))
-                            # Calendario desplegable
                             with st.expander("📅 Ver Plan"):
                                 fechas = pd.date_range(start=date.today(), end=fecha_lim, freq='ME')
                                 if len(fechas) > 0:
@@ -249,6 +276,7 @@ with tab4:
                 concepto = c2.text_input("Concepto")
                 tipo = c2.radio("Tipo", ["🔴 DEBO", "🟢 ME DEBEN"])
                 val = procesar_texto_a_numero(monto)
+                
                 if st.form_submit_button("Anotar") and val > 0:
                     t_guardar = "DEBO" if "🔴" in tipo else "ME DEBEN"
                     v_excel = str(val).replace(".", ",")
