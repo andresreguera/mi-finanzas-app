@@ -3,10 +3,20 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
-import plotly.express as px # Librería de gráficos
+import plotly.express as px
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Finanzas Pro", page_icon="💰", layout="centered")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Mi Finanzas", page_icon="💰", layout="centered")
+
+# --- 🎨 TRUCO DE DISEÑO: MODO LIMPIO (SIN BARRAS NI MENÚS) ---
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- CONEXIÓN ---
 @st.cache_resource
@@ -27,7 +37,6 @@ except:
     st.error("Falta la hoja 'Objetivos'")
     st.stop()
 
-# Conexión a Deudas
 try:
     hoja_deudas = libro.worksheet("Deudas")
 except:
@@ -49,7 +58,7 @@ def formato_visual(numero):
     except:
         return "0,00 €"
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL (VISIBLE SOLO AL DESLIZAR) ---
 with st.sidebar:
     st.header("⚙️ Mantenimiento")
     if st.button("⚠️ BORRAR TODO Y REINICIAR", type="primary"):
@@ -74,7 +83,6 @@ try:
     
     if not df_movimientos.empty and 'Monto' in df_movimientos.columns:
         df_movimientos['Monto_Calc'] = df_movimientos['Monto'].apply(procesar_texto_a_numero)
-        # Convertimos la fecha a formato fecha real para poder filtrar
         df_movimientos['Fecha_Dt'] = pd.to_datetime(df_movimientos['Fecha'], dayfirst=True, errors='coerce')
         
         ingresos = df_movimientos[df_movimientos['Monto_Calc'] > 0]['Monto_Calc'].sum()
@@ -83,17 +91,16 @@ try:
 except: pass
 
 # --- INTERFAZ ---
-st.title("💰 Mi Cartera Inteligente")
+st.title("💰 Mi Cartera")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Saldo Disponible", formato_visual(saldo_actual))
-c2.metric("Ingresos Totales", formato_visual(ingresos))
-c3.metric("Gastos Totales", formato_visual(gastos), delta_color="inverse")
+c1.metric("Saldo", formato_visual(saldo_actual))
+c2.metric("Ingresos", formato_visual(ingresos))
+c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
 
 st.divider()
 
-# AHORA SON 4 PESTAÑAS
-tab1, tab2, tab3, tab4 = st.tabs(["📝 Diario", "📊 Reporte Mensual", "🎯 Objetivos", "💸 Deudas"])
+tab1, tab2, tab3, tab4 = st.tabs(["📝 Diario", "📊 Reporte", "🎯 Objetivos", "💸 Deudas"])
 
 # === PESTAÑA 1: DIARIO ===
 with tab1:
@@ -113,7 +120,6 @@ with tab1:
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
                 final = -val_guardar if tipo == "Gasto" else val_guardar
-                # Formato fecha día/mes/año para Excel
                 fecha_str = fecha.strftime("%d/%m/%Y")
                 val_excel = str(final).replace(".", ",")
                 hoja1.append_row([fecha_str, cat, desc, val_excel, tipo])
@@ -129,62 +135,48 @@ with tab1:
         cols = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
         st.dataframe(df_show[cols].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-# === PESTAÑA 2: REPORTE MENSUAL (NUEVA) ===
+# === PESTAÑA 2: REPORTE MENSUAL ===
 with tab2:
     st.header("📊 Análisis del Mes")
-    
     if not df_movimientos.empty:
-        # Selector de Mes y Año (Automático al mes actual)
         hoy = date.today()
         col_m, col_y = st.columns(2)
         mes_sel = col_m.selectbox("Mes", range(1, 13), index=hoy.month - 1, format_func=lambda x: datetime(2022, x, 1).strftime('%B'))
         anio_sel = col_y.number_input("Año", value=hoy.year)
         
-        # Filtramos los datos del mes seleccionado
         df_mes = df_movimientos[
             (df_movimientos['Fecha_Dt'].dt.month == mes_sel) & 
             (df_movimientos['Fecha_Dt'].dt.year == anio_sel)
         ].copy()
         
         if not df_mes.empty:
-            # Cálculos del Mes
             ing_mes = df_mes[df_mes['Monto_Calc'] > 0]['Monto_Calc'].sum()
             gas_mes = df_mes[df_mes['Monto_Calc'] < 0]['Monto_Calc'].sum()
-            ahorro_mes = ing_mes + gas_mes # gas_mes ya es negativo
+            ahorro_mes = ing_mes + gas_mes
             
-            # Tarjetas Resumen
             cm1, cm2, cm3 = st.columns(3)
-            cm1.metric("Ahorro del Mes", formato_visual(ahorro_mes), delta=formato_visual(ahorro_mes))
+            cm1.metric("Ahorro", formato_visual(ahorro_mes), delta=formato_visual(ahorro_mes))
             cm2.metric("Entradas", formato_visual(ing_mes))
             cm3.metric("Salidas", formato_visual(gas_mes), delta_color="inverse")
             
             st.divider()
             
-            # --- GRÁFICO 1: GASTOS POR CATEGORÍA (DONUT) ---
-            st.subheader(f"🍩 ¿En qué gastaste en {datetime(2022, mes_sel, 1).strftime('%B')}?")
-            
             df_gastos = df_mes[df_mes['Monto_Calc'] < 0].copy()
             if not df_gastos.empty:
+                st.subheader(f"Gastos de {datetime(2022, mes_sel, 1).strftime('%B')}")
                 df_gastos['Monto_Abs'] = df_gastos['Monto_Calc'].abs()
                 fig_pie = px.pie(df_gastos, values='Monto_Abs', names='Categoría', hole=0.4, 
                                  color_discrete_sequence=px.colors.qualitative.Pastel)
                 st.plotly_chart(fig_pie, use_container_width=True)
-            else:
-                st.info("No hay gastos registrados este mes.")
                 
-            # --- GRÁFICO 2: BALANCE DIARIO (BARRAS) ---
-            st.subheader("📅 Evolución Diaria")
-            # Agrupamos por día
-            df_diario = df_mes.groupby('Fecha_Dt')['Monto_Calc'].sum().reset_index()
-            fig_bar = px.bar(df_diario, x='Fecha_Dt', y='Monto_Calc', 
-                             color='Monto_Calc',
-                             color_continuous_scale=['red', 'green'])
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
+                st.subheader("Evolución Diaria")
+                df_diario = df_mes.groupby('Fecha_Dt')['Monto_Calc'].sum().reset_index()
+                fig_bar = px.bar(df_diario, x='Fecha_Dt', y='Monto_Calc', color='Monto_Calc', color_continuous_scale=['red', 'green'])
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("Sin gastos este mes.")
         else:
-            st.warning(f"No hay movimientos registrados en el mes {mes_sel}/{anio_sel}.")
-    else:
-        st.info("Añade movimientos en la pestaña Diario para ver estadísticas.")
+            st.info(f"Sin datos en {mes_sel}/{anio_sel}.")
 
 # === PESTAÑA 3: OBJETIVOS ===
 with tab3:
@@ -218,14 +210,25 @@ with tab3:
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([3, 2, 0.5])
                     with c1:
-                        st.markdown(f"### {r['Objetivo']}")
+                        st.markdown(f"### 🚩 {r['Objetivo']}")
                         st.write(f"Precio: **{formato_visual(precio)}**")
-                        if falta <= 0: st.success("🎉 ¡Objetivo cubierto!")
+                        if falta <= 0: st.success("🎉 ¡Conseguido!")
                         else: st.write(f"Faltan: **{formato_visual(falta)}**")
                     with c2:
                         if falta > 0 and dias > 0:
                             ahorro = falta / meses
                             st.metric("Ahorro Mensual", formato_visual(ahorro))
+                            # Calendario desplegable
+                            with st.expander("📅 Ver Plan"):
+                                fechas = pd.date_range(start=date.today(), end=fecha_lim, freq='ME')
+                                if len(fechas) > 0:
+                                    cuota = falta / len(fechas)
+                                    df_plan = pd.DataFrame({"Fecha": fechas, "Cuota": [cuota]*len(fechas)})
+                                    df_plan['Acumulado'] = df_plan['Cuota'].cumsum() + saldo_actual
+                                    df_plan['Fecha'] = df_plan['Fecha'].dt.strftime('%B %Y')
+                                    df_plan['Cuota'] = df_plan['Cuota'].apply(formato_visual)
+                                    df_plan['Acumulado'] = df_plan['Acumulado'].apply(formato_visual)
+                                    st.dataframe(df_plan, use_container_width=True, hide_index=True)
                         elif dias <= 0: st.error("¡Vencida!")
                     with c3:
                         if st.button("🗑️", key=f"del_{i}"):
@@ -246,7 +249,6 @@ with tab4:
                 concepto = c2.text_input("Concepto")
                 tipo = c2.radio("Tipo", ["🔴 DEBO", "🟢 ME DEBEN"])
                 val = procesar_texto_a_numero(monto)
-                
                 if st.form_submit_button("Anotar") and val > 0:
                     t_guardar = "DEBO" if "🔴" in tipo else "ME DEBEN"
                     v_excel = str(val).replace(".", ",")
