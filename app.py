@@ -26,34 +26,18 @@ except:
     st.error("Falta hoja 'Objetivos'")
     st.stop()
 
-# --- FUNCIONES DE LIMPIEZA (SIMPLIFICADAS AL MÁXIMO) ---
-
+# --- FUNCIONES DE LIMPIEZA ---
 def numero_puro(valor):
-    """
-    ESTA ES LA CORRECCIÓN:
-    Ya NO borramos puntos.
-    Si entra 9.14 -> sale 9.14
-    Si entra "9.14" -> sale 9.14
-    Si entra "9,14" -> lo arreglamos a 9.14 (por si acaso)
-    """
     if valor is None or valor == "": return 0.0
-    
-    # Si ya es número, devolverlo tal cual
-    if isinstance(valor, (int, float)):
-        return float(valor)
-    
-    # Si es texto
+    if isinstance(valor, (int, float)): return float(valor)
     s = str(valor).strip()
     try:
-        # Solo cambiamos coma por punto (para teclados españoles)
-        # PERO NUNCA QUITAMOS EL PUNTO QUE YA EXISTA
-        s = s.replace(",", ".")
+        s = s.replace(",", ".") # Cambiamos coma por punto
         return float(s)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Muestra 9.14 € (Formato estándar)
     return "{:,.2f} €".format(numero)
 
 # --- BARRA LATERAL ---
@@ -61,9 +45,11 @@ with st.sidebar:
     st.write("### ⚙️ Mantenimiento")
     if st.button("⚠️ BORRAR TODO Y REINICIAR", type="primary"):
         hoja1.clear()
-        hoja1.append_row(["Fecha", "Categoría", "Descripción", "Monto", "Tipo"])
+        # AQUI ESTABA EL ERROR: Ahora los nombres coinciden con lo que buscamos abajo
+        hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
         st.cache_data.clear()
-        st.success("Tabla vaciada. Recarga la página.")
+        st.success("Tabla reiniciada con encabezados correctos.")
+        st.rerun()
 
 # --- INTERFAZ ---
 st.title("💰 Mi Cartera")
@@ -81,9 +67,7 @@ with tab1:
     ingresos, gastos, saldo = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # Limpiamos columna Monto respetando el punto
         df['Monto_Num'] = df['Monto'].apply(numero_puro)
-        
         ingresos = df[df['Monto_Num'] > 0]['Monto_Num'].sum()
         gastos = df[df['Monto_Num'] < 0]['Monto_Num'].sum()
         saldo = df['Monto_Num'].sum()
@@ -101,34 +85,40 @@ with tab1:
     with st.form("movimiento"):
         col_a, col_b = st.columns(2)
         fecha = col_a.date_input("Fecha")
-        # Texto de ayuda claro
         monto_txt = col_a.text_input("Cantidad", placeholder="Ej: 9.14")
         
         tipo = col_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
         cat = col_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
-        desc = st.text_input("Concepto")
+        desc = st.text_input("Concepto") # Esto se guarda en la columna 'Concepto'
         
-        # Procesar
         val_real = numero_puro(monto_txt)
         
-        # Chivato para que veas qué va a pasar antes de guardar
         if monto_txt:
             st.caption(f"👀 Se guardará como: {val_real}")
 
         if st.form_submit_button("Guardar"):
             if val_real > 0:
                 final = -val_real if tipo == "Gasto" else val_real
+                # Guardamos en el orden exacto de los encabezados
                 hoja1.append_row([str(fecha), cat, desc, final, tipo])
                 st.success("Guardado.")
                 st.rerun()
             else:
                 st.warning("Introduce una cantidad mayor a 0")
 
-    # 5. Tabla
+    # 5. Tabla Historial (CORREGIDA)
     if not df.empty:
         df_show = df.copy()
         df_show['Monto'] = df_show['Monto_Num'].apply(formato_visual)
-        st.dataframe(df_show[['Fecha', 'Categoria', 'Monto', 'Concepto']].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
+        
+        # AQUI ESTABA EL ERROR: Ahora usamos los nombres exactos del Excel
+        # "Categoría" (con tilde) y "Concepto"
+        cols_a_mostrar = ['Fecha', 'Categoría', 'Monto', 'Concepto']
+        
+        # Filtramos solo si las columnas existen para evitar otro crash
+        cols_validas = [c for c in cols_a_mostrar if c in df_show.columns]
+        
+        st.dataframe(df_show[cols_validas].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
 # PESTAÑA 2: OBJETIVOS
 with tab2:
