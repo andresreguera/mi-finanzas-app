@@ -7,125 +7,49 @@ import plotly.express as px
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(
-    page_title="Mi Finanzas", 
-    page_icon="🏛️", 
-    layout="centered",
+    page_title="Mi Economía", 
+    page_icon="💰", 
+    layout="centered", 
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS "BANCA CORPORATIVA" (ALTO CONTRASTE) ---
-estilo_confianza = """
+# --- 2. ESTILO NATIVO LIMPIO (MODO FANTASMA) ---
+# Eliminamos colores forzados. Dejamos que el sistema decida (Claro/Oscuro).
+# Solo ocultamos la interfaz de Streamlit para que parezca una App.
+hide_styles = """
     <style>
-        /* FUENTE ROBUSTA */
-        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-        
-        html, body, [class*="css"] {
-            font-family: 'Roboto', sans-serif;
-            color: #0f172a; /* Negro azulado para máximo contraste */
-        }
-
-        /* FONDO PRINCIPAL */
-        .stApp {
-            background-color: #f1f5f9; /* Gris muy suave, descansa la vista */
-        }
-
-        /* --- MODO FANTASMA --- */
+        /* Ocultar barras superiores, menú hamburguesa y decoración */
         header {visibility: hidden !important; height: 0px !important;}
-        div[data-testid="stToolbar"] {display: none !important;}
-        div[data-testid="stDecoration"] {display: none !important;}
-        footer {display: none !important;}
+        div[data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
+        div[data-testid="stDecoration"] {display: none !important; height: 0px !important;}
         
+        /* Ocultar pie de página */
+        footer {display: none !important;}
+        #MainMenu {visibility: hidden !important;}
+        
+        /* Ajustar espaciado para móviles (Subir contenido) */
         .block-container {
             padding-top: 2rem !important;
-            padding-bottom: 6rem !important;
+            padding-bottom: 5rem !important;
         }
 
-        /* --- TÍTULOS Y TEXTOS --- */
-        h1, h2, h3 {
-            color: #1e3a8a !important; /* AZUL MARINO FUERTE */
-            font-weight: 700 !important;
+        /* Hacer que los contenedores se integren con el fondo (Sutil) */
+        div[data-testid="stExpander"], div.stContainer {
+            border: 1px solid rgba(128, 128, 128, 0.2); /* Borde muy suave */
+            border-radius: 10px;
+            background-color: transparent; /* Fondo transparente para adaptarse al tema */
         }
         
-        p, label, .stMarkdown {
-            color: #334155 !important; /* Gris oscuro muy legible */
-            font-size: 1rem !important;
-        }
-
-        /* --- TARJETAS (KPIs y CONTENEDORES) --- */
+        /* Ajuste sutil en métricas para que no sean cajas blancas */
         div[data-testid="metric-container"] {
-            background-color: #ffffff;
-            border: 1px solid #cbd5e1; /* Borde sutil pero visible */
-            border-left: 5px solid #1e3a8a; /* Borde lateral azul corporativo */
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-        
-        /* Texto de las métricas más grande y oscuro */
-        div[data-testid="metric-container"] label {
-            font-size: 1rem !important;
-            color: #475569 !important;
-        }
-        div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
-            color: #0f172a !important;
-            font-weight: 700;
-        }
-
-        /* --- BOTONES SÓLIDOS --- */
-        .stButton button {
-            background-color: #1e40af !important; /* Azul Real */
-            color: white !important;
+            background-color: rgba(128, 128, 128, 0.05); /* Ligeramente distinto al fondo */
             border: none;
-            border-radius: 6px;
-            padding: 0.75rem 1.5rem;
-            font-weight: 600;
-            text-transform: uppercase; /* Letras mayúsculas dan autoridad */
-            letter-spacing: 0.5px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: background 0.3s;
-        }
-        
-        .stButton button:hover {
-            background-color: #1e3a8a !important; /* Azul más oscuro al pasar ratón */
-        }
-
-        /* Botones secundarios (Borrar/Rojos) */
-        button[kind="secondary"] {
-            background-color: white !important;
-            color: #dc2626 !important;
-            border: 2px solid #dc2626 !important;
-        }
-
-        /* --- INPUTS CLAROS --- */
-        .stTextInput input, .stDateInput input, .stSelectbox div[data-baseweb="select"] {
-            background-color: #ffffff;
-            border: 2px solid #94a3b8; /* Borde más grueso para ver bien dónde escribir */
-            color: #0f172a;
-            border-radius: 6px;
-            height: 45px;
-        }
-        
-        /* --- PESTAÑAS --- */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 5px;
-            background-color: transparent;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: #e2e8f0;
-            color: #475569;
-            font-weight: 600;
-            border-radius: 6px 6px 0 0;
-            border: 1px solid #cbd5e1;
-            border-bottom: none;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #ffffff;
-            color: #1e3a8a !important; /* Azul en la pestaña activa */
-            border-top: 3px solid #1e3a8a; /* Línea superior azul */
+            border-radius: 10px;
+            padding: 10px;
         }
     </style>
 """
-st.markdown(estilo_confianza, unsafe_allow_html=True)
+st.markdown(hide_styles, unsafe_allow_html=True)
 
 # --- 3. CONEXIÓN ---
 @st.cache_resource
@@ -164,12 +88,12 @@ def saludo_dinamico():
 
 # --- 5. BARRA LATERAL ---
 with st.sidebar:
-    st.markdown("### ⚙️ Configuración")
-    if st.button("⚠️ RESTAURAR DATOS", type="primary"):
+    st.header("Configuración")
+    if st.button("⚠️ Reiniciar Base de Datos", type="primary"):
         hoja1.clear(); hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
         if hoja_deudas:
             hoja_deudas.clear(); hoja_deudas.append_row(["Fecha", "Persona", "Concepto", "Monto", "Tipo"])
-        st.cache_data.clear(); st.success("Sistema reiniciado."); st.rerun()
+        st.cache_data.clear(); st.success("Datos borrados."); st.rerun()
 
 # --- 6. CÁLCULOS ---
 saldo_actual, ingresos, gastos = 0.0, 0.0, 0.0
@@ -186,45 +110,45 @@ try:
         saldo_actual = df_movimientos['Monto_Calc'].sum()
 except: pass
 
-# --- 7. HEADER CORPORATIVO ---
-st.markdown(f"<h2 style='text-align: left; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px;'>{saludo_dinamico()}, Andrés</h2>", unsafe_allow_html=True)
-st.markdown(f"<p style='color: #475569;'>Estado financiero a <b>{date.today().strftime('%d/%m/%Y')}</b></p>", unsafe_allow_html=True)
+# --- 7. HEADER NATIVO ---
+st.title(f"{saludo_dinamico()}, Andrés")
+st.caption(f"Resumen a {date.today().strftime('%d/%m/%Y')}")
 
-# KPI CARDS
 c1, c2, c3 = st.columns(3)
-c1.metric("💰 Disponible", formato_visual(saldo_actual))
-c2.metric("📈 Ingresos", formato_visual(ingresos))
-c3.metric("📉 Gastos", formato_visual(gastos), delta_color="inverse")
+c1.metric("Disponible", formato_visual(saldo_actual))
+c2.metric("Ingresos", formato_visual(ingresos))
+c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
 
-st.markdown("<br>", unsafe_allow_html=True)
+st.divider()
 
 # --- 8. PESTAÑAS ---
-tab1, tab2, tab3, tab4 = st.tabs(["DIARIO", "INFORMES", "METAS", "DEUDAS"])
+tab1, tab2, tab3, tab4 = st.tabs(["Diario", "Reporte", "Metas", "Deudas"])
 
 # PESTAÑA 1: DIARIO
 with tab1:
-    st.markdown("#### 📝 Registrar Operación")
+    st.subheader("📝 Nuevo Registro")
     with st.container():
-        with st.form("mov"):
+        with st.form("mov", border=False): # border=False para que se funda con el fondo
             c_a, c_b = st.columns(2)
-            fecha = c_a.date_input("Fecha operación")
-            monto_txt = c_a.text_input("Importe (€)", placeholder="0,00")
-            tipo = c_b.selectbox("Tipo de movimiento", ["Gasto", "Ingreso", "Sueldo"])
-            cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Vivienda", "Ocio", "Ahorro", "Nómina", "Salud", "Otros"])
-            desc = st.text_input("Concepto / Descripción")
+            fecha = c_a.date_input("Fecha")
+            monto_txt = c_a.text_input("Cantidad (€)", placeholder="0,00")
+            tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
+            cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina", "Ropa", "Salud", "Otros"])
+            desc = st.text_input("Concepto (Opcional)")
             
             val = procesar_texto_a_numero(monto_txt)
             
-            if st.form_submit_button("GUARDAR OPERACIÓN", use_container_width=True):
+            # Botón nativo (se adapta al tema claro/oscuro automáticamente)
+            if st.form_submit_button("Guardar Movimiento", use_container_width=True):
                 if val > 0:
                     final = -val if tipo == "Gasto" else val
                     hoja1.append_row([fecha.strftime("%d/%m/%Y"), cat, desc, str(final).replace(".", ","), tipo])
-                    st.toast("✅ Operación registrada con éxito")
+                    st.toast("Guardado correctamente")
                     st.cache_data.clear(); st.rerun()
-                else: st.warning("El importe debe ser mayor a 0")
+                else: st.warning("Introduce una cantidad válida")
 
     if not df_movimientos.empty:
-        st.markdown("#### 📋 Últimos Movimientos")
+        st.markdown("#### Historial")
         df_s = df_movimientos.copy()
         df_s['Monto'] = df_s['Monto_Calc'].apply(formato_visual)
         cols = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_s.columns]
@@ -235,7 +159,7 @@ with tab2:
     if not df_movimientos.empty:
         hoy = date.today()
         c_m, c_y = st.columns(2)
-        mes = c_m.selectbox("Mes del reporte", range(1,13), index=hoy.month-1, format_func=lambda x: datetime(2022, x, 1).strftime('%B').upper())
+        mes = c_m.selectbox("Mes", range(1,13), index=hoy.month-1, format_func=lambda x: datetime(2022, x, 1).strftime('%B').capitalize())
         anio = c_y.number_input("Año", value=hoy.year)
         
         df_m = df_movimientos[(df_movimientos['Fecha_Dt'].dt.month == mes) & (df_movimientos['Fecha_Dt'].dt.year == anio)]
@@ -245,36 +169,35 @@ with tab2:
             g_m = df_m[df_m['Monto_Calc'] < 0]['Monto_Calc'].sum()
             ahorro = i_m + g_m
             
-            st.info(f"💵 Resultado Neto de {datetime(2022, mes, 1).strftime('%B')}: **{formato_visual(ahorro)}**")
+            st.info(f"Balance de {datetime(2022, mes, 1).strftime('%B')}: **{formato_visual(ahorro)}**")
             
             df_g = df_m[df_m['Monto_Calc'] < 0].copy()
             if not df_g.empty:
-                st.markdown("##### Desglose de Gastos")
+                st.subheader("Gastos por Categoría")
                 df_g['Abs'] = df_g['Monto_Calc'].abs()
-                # Colores sólidos y profesionales para el gráfico
-                fig = px.pie(df_g, values='Abs', names='Categoría', hole=0.5, 
-                             color_discrete_sequence=["#1e3a8a", "#1d4ed8", "#3b82f6", "#60a5fa", "#93c5fd"])
+                fig = px.pie(df_g, values='Abs', names='Categoría', hole=0.5)
+                # Esto hace que el gráfico use texto blanco en modo oscuro y negro en modo claro
                 fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.success("No hay gastos registrados en este periodo.")
-        else: st.warning("No existen datos para el periodo seleccionado.")
+            else: st.success("Sin gastos este mes")
+        else: st.info("No hay datos.")
 
 # PESTAÑA 3: METAS
 with tab3:
-    with st.expander("➕ Definir Nuevo Objetivo"):
+    with st.expander("➕ Nueva Meta"):
         with st.form("new_obj"):
-            nom = st.text_input("Nombre del Objetivo")
-            cant = st.text_input("Importe Necesario (€)")
-            fin = st.date_input("Fecha Límite")
+            nom = st.text_input("Objetivo")
+            cant = st.text_input("Total (€)")
+            fin = st.date_input("Fecha Fin")
             v = procesar_texto_a_numero(cant)
-            if st.form_submit_button("CREAR OBJETIVO", use_container_width=True) and v>0:
+            if st.form_submit_button("Crear Meta", use_container_width=True) and v>0:
                 hoja_obj.append_row([nom, str(v).replace(".", ","), str(fin), str(date.today())])
                 st.cache_data.clear(); st.rerun()
     try:
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
         if do:
-            st.markdown("<br>", unsafe_allow_html=True)
-            sueldo = procesar_texto_a_numero(st.text_input("Ingreso Mensual Neto", "200,00"))
+            st.divider()
+            sueldo = procesar_texto_a_numero(st.text_input("Tu Ingreso Mensual", "200,00"))
             
             for i, r in pd.DataFrame(do).iterrows():
                 m = procesar_texto_a_numero(r['Monto_Meta'])
@@ -282,27 +205,28 @@ with tab3:
                 dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
                 meses = max(dias/30.44, 0.1)
                 
-                with st.container():
+                # Contenedor nativo (borde sutil, fondo transparente)
+                with st.container(border=True):
                     col_txt, col_num, col_del = st.columns([3, 2, 0.5])
                     with col_txt:
                         st.markdown(f"**{r['Objetivo']}**")
-                        if falta <= 0: st.success("✅ Objetivo Alcanzado")
-                        else: st.markdown(f"Faltan: **{formato_visual(falta)}**")
+                        if falta <= 0: st.success("✅ Conseguido")
+                        else: st.caption(f"Faltan: {formato_visual(falta)}")
                     with col_num:
                         if falta > 0 and dias > 0:
                             mensual = falta/meses
                             pct = (mensual/sueldo*100) if sueldo > 0 else 0
-                            # Colores de alerta estándar (Semáforo)
-                            color_t = "green" if pct < 20 else "orange" if pct < 40 else "red"
-                            st.markdown(f":{color_t}[**{formato_visual(mensual)} / mes**]")
-                            st.caption(f"Esfuerzo: {pct:.0f}% del ingreso")
-                        elif dias<=0: st.error("Plazo vencido")
+                            # Usamos emojis en lugar de colores hardcodeados para mejor compatibilidad
+                            alert = "🟢" if pct < 20 else "🟠" if pct < 40 else "🔴"
+                            st.write(f"{alert} **{formato_visual(mensual)}/mes**")
+                            st.caption(f"{pct:.0f}% del ingreso")
+                        elif dias<=0: st.error("Vencida")
                     with col_del:
-                        if st.button("✖️", key=f"d{i}"):
+                        if st.button("✕", key=f"d{i}"):
                             hoja_obj.delete_rows(i+2); st.cache_data.clear(); st.rerun()
                     
                     if falta > 0 and dias > 0:
-                        with st.expander("Ver Plan de Amortización"):
+                        with st.expander("Ver Calendario"):
                             fechas = pd.date_range(start=date.today(), end=pd.to_datetime(r['Fecha_Limite']), freq='ME')
                             if len(fechas) > 0:
                                 df_p = pd.DataFrame({"Fecha": fechas, "Cuota": [falta/len(fechas)]*len(fechas)})
@@ -315,35 +239,33 @@ with tab3:
 
 # PESTAÑA 4: DEUDAS
 with tab4:
-    with st.expander("➕ Registrar Deuda / Préstamo"):
+    with st.expander("➕ Apuntar Deuda"):
         with st.form("new_deuda"):
             c1, c2 = st.columns(2)
-            p = c1.text_input("Persona / Entidad")
-            m = c1.text_input("Importe (€)")
+            p = c1.text_input("Persona")
+            m = c1.text_input("€")
             c = c2.text_input("Motivo")
-            t = c2.radio("Tipo", ["🔴 DEBO (Pagar)", "🟢 ME DEBEN (Cobrar)"])
+            t = c2.radio("Tipo", ["🔴 DEBO", "🟢 ME DEBEN"])
             v = procesar_texto_a_numero(m)
-            if st.form_submit_button("REGISTRAR", use_container_width=True) and v>0:
+            if st.form_submit_button("Guardar", use_container_width=True) and v>0:
                 tg = "DEBO" if "🔴" in t else "ME DEBEN"
                 hoja_deudas.append_row([date.today().strftime("%d/%m/%Y"), p, c, str(v).replace(".", ","), tg])
                 st.cache_data.clear(); st.rerun()
     try:
         dd = hoja_deudas.get_all_records(numericise_ignore=['all'])
         if dd:
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
             for i, r in pd.DataFrame(dd).iterrows():
                 imp = procesar_texto_a_numero(r['Monto'])
-                with st.container():
+                with st.container(border=True):
                     c1, c2 = st.columns([4,1])
                     with c1:
-                        if r['Tipo']=="DEBO": 
-                            st.error(f"🔴 Debo a **{r['Persona']}**")
-                        else: 
-                            st.success(f"🟢 Me debe **{r['Persona']}**")
-                        st.write(f"Importe: **{formato_visual(imp)}** | Motivo: {r['Concepto']}")
+                        pre = "🔴 Debo a" if r['Tipo']=="DEBO" else "🟢 Me debe"
+                        st.markdown(f"{pre} **{r['Persona']}**: {formato_visual(imp)}")
+                        st.caption(f"{r['Concepto']} | {r['Fecha']}")
                     with c2:
                         st.write("")
-                        if st.button("Saldar", key=f"s{i}"):
-                            hoja_deudas.delete_rows(i+2); st.toast("Deuda saldada"); st.cache_data.clear(); st.rerun()
-        else: st.info("No hay deudas pendientes.")
+                        if st.button("✅", key=f"s{i}"):
+                            hoja_deudas.delete_rows(i+2); st.toast("Saldado"); st.cache_data.clear(); st.rerun()
+        else: st.caption("No tienes deudas.")
     except: pass
