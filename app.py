@@ -26,47 +26,43 @@ except:
     st.error("Falta la hoja 'Objetivos'")
     st.stop()
 
-# --- FUNCIONES DE LIMPIEZA Y FORMATO ---
+# --- FUNCIONES DE LIMPIEZA BLINDADAS ---
 
-def limpiar_numero(valor):
+def procesar_texto_a_numero(valor):
     """
-    Convierte cualquier entrada a un número decimal válido para Python.
-    ESTRATEGIA:
-    1. Si hay puntos y comas (ej: 4.139,14), asumimos punto=miles, coma=decimal.
-    2. Si solo hay coma (ej: 9,14), coma=decimal.
-    3. Si solo hay punto (ej: 10.50), punto=decimal.
+    ESTA ES LA SOLUCIÓN.
+    Fuerza que cualquier coma que venga del Excel se convierta en punto decimal.
+    Entrada: "4139,14" (Texto del Excel) -> Salida: 4139.14 (Número Python)
     """
-    if valor is None or str(valor).strip() == "": return 0.0
-    if isinstance(valor, (int, float)): return float(valor)
+    # 1. Convertimos a texto obligatoriamente para manipularlo
+    texto = str(valor).strip()
     
-    s = str(valor).strip()
+    if not texto: return 0.0
+
     try:
-        # Caso complejo: 1.000,50 -> Quitamos el punto
-        if "." in s and "," in s:
-            s = s.replace(".", "")
+        # SI TIENE COMA, ES DECIMAL.
+        # Paso A: Quitamos cualquier punto que haya (por si acaso hay miles: 1.000,50)
+        texto = texto.replace(".", "")
         
-        # Regla de oro: La coma siempre pasa a ser punto decimal
-        s = s.replace(",", ".")
-        return float(s)
+        # Paso B: La coma se convierte en el ÚNICO punto decimal
+        texto = texto.replace(",", ".")
+        
+        return float(texto)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Transforma 4139.14 en "4.139,14 €"
+    # Esto solo pinta el número bonito: 4.139,14 €
     try:
         return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return "0,00 €"
 
-# --- BARRA LATERAL (RESET) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Opciones")
-    if st.button("⚠️ BORRAR TODO Y REINICIAR TABLA", type="primary"):
-        hoja1.clear()
-        # Encabezados exactos para evitar errores futuros
-        hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
+    if st.button("🔄 RECARGAR DATOS", type="primary"):
         st.cache_data.clear()
-        st.success("Tabla limpia. Los errores antiguos han desaparecido.")
         st.rerun()
 
 # --- INTERFAZ ---
@@ -78,15 +74,17 @@ tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 with tab1:
     # 1. Cargar Datos
     try:
-        data = hoja1.get_all_records()
+        # TRUCO: numericise_ignore=['all'] obliga a leer todo como TEXTO
+        # Así evitamos que Google intente adivinar el número y falle.
+        data = hoja1.get_all_records(numericise_ignore=['all'])
         df = pd.DataFrame(data)
     except: df = pd.DataFrame()
 
     ingresos, gastos, saldo = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # Limpiamos los datos matemáticamente
-        df['Monto_Calc'] = df['Monto'].apply(limpiar_numero)
+        # APLICAMOS LA FUERZA BRUTA A LA COLUMNA MONTO
+        df['Monto_Calc'] = df['Monto'].apply(procesar_texto_a_numero)
         
         ingresos = df[df['Monto_Calc'] > 0]['Monto_Calc'].sum()
         gastos = df[df['Monto_Calc'] < 0]['Monto_Calc'].sum()
@@ -105,42 +103,36 @@ with tab1:
     with st.form("mov"):
         c_a, c_b = st.columns(2)
         fecha = c_a.date_input("Fecha")
-        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 9,14 o 4000")
+        monto_txt = c_a.text_input("Cantidad (€)", placeholder="Ej: 4139,14")
         
         tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
         cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
         desc = st.text_input("Concepto")
         
-        # Previsualización para tu tranquilidad
-        val_guardar = limpiar_numero(monto_txt)
+        # Procesamos lo que escribes igual que lo que leemos del Excel
+        val_guardar = procesar_texto_a_numero(monto_txt)
+        
         if monto_txt:
-            st.info(f"🔢 El sistema guardará: **{val_guardar}** (que visualmente es {formato_visual(val_guardar)})")
+            st.info(f"🔢 Se guardará como: **{val_guardar}**")
 
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
                 final = -val_guardar if tipo == "Gasto" else val_guardar
-                # Guardamos el número limpio en el Excel
-                hoja1.append_row([str(fecha), cat, desc, final, tipo])
-                st.success("Guardado correctamente.")
+                # Al guardar, convertimos a string con coma para que Excel lo vea "Español"
+                valor_excel = str(final).replace(".", ",")
+                
+                hoja1.append_row([str(fecha), cat, desc, valor_excel, tipo])
+                st.success("Guardado.")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.warning("Introduce una cantidad válida.")
 
-    # 4. Tabla Historial (SOLUCIÓN DEL ERROR VALUE ERROR)
+    # 4. Tabla Historial
     if not df.empty:
-        # Creamos una copia para visualizar
         df_show = df.copy()
-        
-        # SOBRESCRIBIMOS la columna Monto con el texto bonito
-        # Esto evita tener dos columnas 'Monto' y 'Monto_Visual' chocando
         df_show['Monto'] = df_show['Monto_Calc'].apply(formato_visual)
-        
-        # Seleccionamos las columnas que existen seguro
-        cols_finales = ['Fecha', 'Categoría', 'Monto', 'Concepto']
-        # Filtramos por si acaso alguna columna cambió de nombre en el Excel
-        cols_existentes = [c for c in cols_finales if c in df_show.columns]
-        
+        cols_existentes = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
         st.dataframe(df_show[cols_existentes].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
 # === PESTAÑA OBJETIVOS ===
@@ -150,19 +142,22 @@ with tab2:
         nom = st.text_input("Meta")
         cant = st.text_input("Cantidad", placeholder="Ej: 1500,00")
         fin = st.date_input("Fecha Fin")
-        val = limpiar_numero(cant)
+        val = procesar_texto_a_numero(cant)
         
         if st.form_submit_button("Crear") and val > 0:
-            hoja_obj.append_row([nom, val, str(fin), str(date.today())])
+            val_excel = str(val).replace(".", ",")
+            hoja_obj.append_row([nom, val_excel, str(fin), str(date.today())])
             st.rerun()
 
     try:
-        dfo = pd.DataFrame(hoja_obj.get_all_records())
+        # Leemos también objetivos como texto puro
+        do = hoja_obj.get_all_records(numericise_ignore=['all'])
+        dfo = pd.DataFrame(do)
         if not dfo.empty:
             st.divider()
-            sueldo = limpiar_numero(st.text_input("Sueldo Mensual", "1500"))
+            sueldo = procesar_texto_a_numero(st.text_input("Sueldo Mensual", "1500"))
             for i, r in dfo.iterrows():
-                m = limpiar_numero(r['Monto_Meta'])
+                m = procesar_texto_a_numero(r['Monto_Meta'])
                 dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
                 ahorro = m / max(dias/30, 0.1)
                 st.info(f"**{r['Objetivo']}**: Ahorra {formato_visual(ahorro)}/mes")
