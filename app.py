@@ -5,66 +5,40 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Mi Finanzas Pro", page_icon="📈", layout="centered")
+st.set_page_config(page_title="Mi Finanzas Simple", page_icon="💰", layout="centered")
 
-# --- FUNCIÓN 1: PINTAR BONITO (Salida en pantalla) ---
+# --- FUNCIÓN DE FORMATO VISUAL (ESTÁNDAR) ---
 def formato_euros(valor):
     """
-    Convierte el número 4000.50 en texto "4.000,50 €"
+    Muestra el dinero en formato estándar internacional.
+    Ejemplo: 4000.50 -> "4,000.50 €"
     """
     try:
-        if valor is None: return "0,00 €"
-        # Primero formato estándar (4,000.50)
-        texto = "{:,.2f}".format(float(valor))
-        # Invertimos símbolos: Coma a Punto, Punto a Coma
-        return texto.replace(",", "X").replace(".", ",").replace("X", ".") + " €"
+        if valor is None: return "0.00 €"
+        # Formato: Coma para miles, Punto para decimales
+        return "{:,.2f} €".format(float(valor))
     except:
-        return "0,00 €"
+        return "0.00 €"
 
-# --- FUNCIÓN 2: LEER DATOS (Aquí estaba el error y aquí está la solución) ---
-def leer_dato_seguro(dato):
+# --- FUNCIÓN DE LIMPIEZA (LÓGICA SIMPLE) ---
+def limpiar_numero(texto):
     """
-    Analiza qué nos manda Google Sheets.
-    - Si manda el número 1.11 -> Lo dejamos como 1.11 (NO borramos el punto)
-    - Si manda texto "1.000,50" -> Lo limpiamos a 1000.50
+    Reglas simples:
+    - 4000 -> 4000.0
+    - 9.14 -> 9.14
+    - 1,000 -> 1000.0 (Ignoramos las comas de miles si las pones)
     """
-    # CASO A: Ya es un número (int o float). ¡NO TOCAR!
-    if isinstance(dato, (int, float)):
-        return float(dato)
-    
-    # CASO B: Es texto. Aplicamos TU lógica.
-    texto = str(dato).strip()
     if not texto: return 0.0
     
-    try:
-        # 1. Quitamos los puntos (son separadores de miles visuales)
-        # "4.000,00" -> "4000,00"
-        texto = texto.replace(".", "")
-        
-        # 2. Cambiamos la coma por punto (para que Python calcule)
-        # "4000,00" -> "4000.00"
-        texto = texto.replace(",", ".")
-        
+    # Si ya es número, perfecto
+    if isinstance(texto, (int, float)):
         return float(texto)
-    except:
-        return 0.0
-
-# --- FUNCIÓN 3: ESCRIBIR DATOS (Tu Input) ---
-def limpiar_input_usuario(texto_input):
-    """
-    Tus reglas estrictas:
-    - 4.000 -> 4000 (Punto se borra)
-    - 9,14  -> 9.14 (Coma se vuelve punto)
-    """
-    if not texto_input: return 0.0
-    texto = str(texto_input).strip()
     
+    s = str(texto).strip()
     try:
-        # Paso 1: Eliminar puntos de miles
-        texto = texto.replace(".", "")
-        # Paso 2: Convertir coma decimal a punto
-        texto = texto.replace(",", ".")
-        return float(texto)
+        # Eliminamos comas por si acaso pusiste "1,000"
+        s = s.replace(",", "")
+        return float(s)
     except:
         return 0.0
 
@@ -78,7 +52,7 @@ def conectar_google_sheets():
         client = gspread.authorize(creds)
         return client.open("Finanzas_DB")
     except Exception as e:
-        st.error(f"Error crítico: {e}")
+        st.error(f"Error conexión: {e}")
         return None
 
 libro = conectar_google_sheets()
@@ -88,11 +62,12 @@ try:
     hoja_movimientos = libro.sheet1
     hoja_objetivos = libro.worksheet("Objetivos")
 except:
-    st.error("⚠️ Falta la hoja 'Objetivos' en Google Sheets.")
+    st.error("⚠️ Falta la hoja 'Objetivos'.")
     st.stop()
 
 # --- INTERFAZ ---
-st.title("📈 Mi Planificador Financiero")
+st.title("💰 Mi Planificador (Modo Simple)")
+
 tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 
 # ==========================================================
@@ -107,17 +82,18 @@ with tab1:
     ingresos, gastos, saldo_total = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # APLICAMOS LA LECTURA SEGURA FILA POR FILA
-        df['Monto_Num'] = df['Monto'].apply(leer_dato_seguro)
+        # Limpiamos usando la lógica simple
+        df['Monto_Num'] = df['Monto'].apply(limpiar_numero)
         
         ingresos = df[df['Monto_Num'] > 0]['Monto_Num'].sum()
         gastos = df[df['Monto_Num'] < 0]['Monto_Num'].sum()
         saldo_total = df['Monto_Num'].sum()
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Saldo Actual", formato_euros(saldo_total))
-    col2.metric("Ingresos", formato_euros(ingresos))
-    col3.metric("Gastos", formato_euros(gastos), delta_color="inverse")
+    # Tarjetas
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Saldo Actual", formato_euros(saldo_total))
+    c2.metric("Ingresos", formato_euros(ingresos))
+    c3.metric("Gastos", formato_euros(gastos), delta_color="inverse")
 
     st.divider()
 
@@ -126,28 +102,28 @@ with tab1:
         c1, c2 = st.columns(2)
         fecha = c1.date_input("Fecha", datetime.now())
         
-        # INPUT DE TEXTO: Para que tú escribas "4.000" o "9,14" libremente
-        monto_txt = c1.text_input("Monto (€)", placeholder="Ej: 4.000 o 9,14")
+        # INPUT SIMPLE: Sin trucos.
+        monto_txt = c1.text_input("Monto (€)", placeholder="Ej: 9.14")
         
         tipo = c2.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo Mensual"])
         cat = c2.selectbox("Categoría", ["Comida", "Transporte", "Vivienda", "Ocio", "Ahorro", "Nómina"])
         desc = st.text_input("Concepto")
         
-        # LÓGICA DE PREVISUALIZACIÓN
-        monto_real = limpiar_input_usuario(monto_txt)
+        val_real = limpiar_numero(monto_txt)
         if monto_txt:
-            st.caption(f"👀 El sistema leerá: **{formato_euros(monto_real)}**")
+            st.caption(f"👀 Se guardará: {val_real}")
         
-        if st.form_submit_button("💾 Guardar", use_container_width=True):
-            if monto_real > 0:
-                final = -monto_real if tipo == "Gasto" else monto_real
-                # Guardamos en Sheets
+        if st.form_submit_button("💾 Guardar"):
+            if val_real > 0:
+                final = -val_real if tipo == "Gasto" else val_real
+                # Guardamos el número limpio en Google Sheets
                 hoja_movimientos.append_row([str(fecha), cat, desc, final, tipo])
                 st.success("¡Guardado!")
                 st.rerun()
             else:
-                st.warning("Escribe una cantidad válida.")
+                st.warning("Pon una cantidad válida (mayor a 0).")
 
+    # Historial
     if not df.empty:
         df_show = df.copy()
         df_show['Monto'] = df_show['Monto_Num'].apply(formato_euros)
@@ -160,11 +136,10 @@ with tab2:
     st.header("🎯 Metas")
     with st.form("meta"):
         nom = st.text_input("Objetivo")
-        c_txt = st.text_input("Cantidad (€)", placeholder="Ej: 15.000,00")
+        c_txt = st.text_input("Cantidad (€)", placeholder="Ej: 1500.00")
         f_lim = st.date_input("Fecha Límite")
         
-        c_real = limpiar_input_usuario(c_txt)
-        if c_txt: st.caption(f"👀 Meta de: {formato_euros(c_real)}")
+        c_real = limpiar_numero(c_txt)
         
         if st.form_submit_button("Crear Meta") and c_real > 0:
             hoja_objetivos.append_row([nom, c_real, str(f_lim), str(date.today())])
@@ -177,11 +152,11 @@ with tab2:
 
     if not df_obj.empty:
         st.divider()
-        sueldo_txt = st.text_input("💰 Tu Sueldo (opcional)", value="1.500,00")
-        sueldo = limpiar_input_usuario(sueldo_txt)
+        sueldo_txt = st.text_input("💰 Tu Sueldo (para calcular)", value="1500.00")
+        sueldo = limpiar_numero(sueldo_txt)
 
         for i, row in df_obj.iterrows():
-            meta = leer_dato_seguro(row['Monto_Meta'])
+            meta = limpiar_numero(row['Monto_Meta'])
             dias = (pd.to_datetime(row['Fecha_Limite']).date() - date.today()).days
             meses = max(dias / 30, 0.1)
             ahorro = meta / meses
