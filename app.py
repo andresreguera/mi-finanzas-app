@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
-from dateutil.relativedelta import relativedelta # Librería para cálculo de fechas
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Finanzas Pro", page_icon="💰", layout="centered")
@@ -27,25 +26,18 @@ except:
     st.error("Falta la hoja 'Objetivos'")
     st.stop()
 
-# --- FUNCIONES DE LIMPIEZA BLINDADAS ---
-
+# --- FUNCIONES BLINDADAS ---
 def procesar_texto_a_numero(valor):
-    """
-    Convierte texto del Excel o Input (formato español) a número Python.
-    "1.500,00" -> 1500.0
-    "4139,14" -> 4139.14
-    """
     texto = str(valor).strip()
     if not texto: return 0.0
     try:
-        # Quitamos puntos de miles y cambiamos coma a punto
+        # Formato español: quitamos punto de mil, cambiamos coma a decimal
         texto = texto.replace(".", "").replace(",", ".")
         return float(texto)
     except:
         return 0.0
 
 def formato_visual(numero):
-    # Formato español bonito: 4.139,14 €
     try:
         return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
     except:
@@ -58,37 +50,39 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+# --- CÁLCULOS GLOBALES (LO PRIMERO DE TODO) ---
+# Calculamos el saldo AQUÍ para usarlo en todas partes
+saldo_actual = 0.0
+ingresos = 0.0
+gastos = 0.0
+df_movimientos = pd.DataFrame()
+
+try:
+    data = hoja1.get_all_records(numericise_ignore=['all'])
+    df_movimientos = pd.DataFrame(data)
+    
+    if not df_movimientos.empty and 'Monto' in df_movimientos.columns:
+        df_movimientos['Monto_Calc'] = df_movimientos['Monto'].apply(procesar_texto_a_numero)
+        ingresos = df_movimientos[df_movimientos['Monto_Calc'] > 0]['Monto_Calc'].sum()
+        gastos = df_movimientos[df_movimientos['Monto_Calc'] < 0]['Monto_Calc'].sum()
+        saldo_actual = df_movimientos['Monto_Calc'].sum()
+except: pass
+
 # --- INTERFAZ ---
-st.title("💰 Mi Cartera")
+st.title("💰 Mi Cartera Inteligente")
+
+# Tarjetas KPI (Siempre visibles arriba)
+c1, c2, c3 = st.columns(3)
+c1.metric("Saldo Disponible", formato_visual(saldo_actual))
+c2.metric("Ingresos", formato_visual(ingresos))
+c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
+
+st.divider()
 
 tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos y Planificación"])
 
-# === PESTAÑA DIARIO ===
+# === PESTAÑA 1: DIARIO ===
 with tab1:
-    # 1. Cargar Datos
-    try:
-        data = hoja1.get_all_records(numericise_ignore=['all'])
-        df = pd.DataFrame(data)
-    except: df = pd.DataFrame()
-
-    ingresos, gastos, saldo = 0.0, 0.0, 0.0
-
-    if not df.empty and 'Monto' in df.columns:
-        df['Monto_Calc'] = df['Monto'].apply(procesar_texto_a_numero)
-        
-        ingresos = df[df['Monto_Calc'] > 0]['Monto_Calc'].sum()
-        gastos = df[df['Monto_Calc'] < 0]['Monto_Calc'].sum()
-        saldo = df['Monto_Calc'].sum()
-
-    # 2. Mostrar Saldos
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Saldo Actual", formato_visual(saldo))
-    c2.metric("Ingresos", formato_visual(ingresos))
-    c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
-
-    st.divider()
-
-    # 3. Formulario
     st.subheader("Nuevo Movimiento")
     with st.form("mov"):
         c_a, c_b = st.columns(2)
@@ -100,7 +94,7 @@ with tab1:
         desc = st.text_input("Concepto")
         
         val_guardar = procesar_texto_a_numero(monto_txt)
-        if monto_txt: st.info(f"🔢 Se guardará: **{val_guardar}**")
+        if monto_txt: st.caption(f"🔢 Se guardará: **{val_guardar}**")
 
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
@@ -111,34 +105,32 @@ with tab1:
                 st.cache_data.clear()
                 st.rerun()
             else:
-                st.warning("Introduce cantidad válida.")
+                st.warning("Cantidad incorrecta.")
 
-    if not df.empty:
-        df_show = df.copy()
+    if not df_movimientos.empty:
+        df_show = df_movimientos.copy()
         df_show['Monto'] = df_show['Monto_Calc'].apply(formato_visual)
         cols = [c for c in ['Fecha', 'Categoría', 'Monto', 'Concepto'] if c in df_show.columns]
         st.dataframe(df_show[cols].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-# === PESTAÑA OBJETIVOS (CALENDARIO 2026) ===
+# === PESTAÑA 2: OBJETIVOS (LÓGICA CORREGIDA) ===
 with tab2:
-    st.header("🎯 Metas y Calendario")
-    
-    # Formulario Crear
+    st.header("🎯 Metas")
+    st.info(f"💡 El sistema descontará tu saldo actual (**{formato_visual(saldo_actual)}**) de tus metas.")
+
     with st.expander("➕ Crear Nueva Meta", expanded=False):
         with st.form("obj"):
             nom = st.text_input("Meta")
-            cant = st.text_input("Cantidad Total (€)", placeholder="Ej: 15000,00")
-            fin = st.date_input("Fecha Límite (Ej: 2026)")
+            cant = st.text_input("Coste Total (€)", placeholder="Ej: 15000,00")
+            fin = st.date_input("Fecha Límite")
             val = procesar_texto_a_numero(cant)
             
             if st.form_submit_button("Crear") and val > 0:
                 val_excel = str(val).replace(".", ",")
                 hoja_obj.append_row([nom, val_excel, str(fin), str(date.today())])
-                st.success("Meta creada.")
                 st.cache_data.clear()
                 st.rerun()
 
-    # Listado
     try:
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
         dfo = pd.DataFrame(do)
@@ -146,96 +138,91 @@ with tab2:
         if not dfo.empty:
             st.divider()
             
-            # --- CORRECCIÓN DEL SUELDO ---
-            st.markdown("### ⚙️ Tu Capacidad de Ahorro")
-            col_sueldo, col_info = st.columns([1, 2])
-            
-            with col_sueldo:
-                # Texto libre para evitar problemas de formato
-                sueldo_txt = st.text_input("Tu Sueldo Mensual (€)", value="1.500,00")
-                sueldo_real = procesar_texto_a_numero(sueldo_txt)
-            
-            with col_info:
-                # Feedback visual inmediato para que sepas qué lee el sistema
-                st.info(f"El sistema calcula usando un sueldo de: **{formato_visual(sueldo_real)}**")
+            # Input de Sueldo (con feedback visual)
+            col_s_in, col_s_info = st.columns([1, 2])
+            sueldo_txt = col_s_in.text_input("Tu Ingreso Mensual", value="1.500,00")
+            sueldo_real = procesar_texto_a_numero(sueldo_txt)
+            col_s_info.info(f"Calculando esfuerzo sobre: **{formato_visual(sueldo_real)}**")
 
-            st.divider()
+            st.markdown("---")
 
-            # --- TARJETAS DE METAS ---
             for i, r in dfo.iterrows():
-                m = procesar_texto_a_numero(r['Monto_Meta'])
+                precio_meta = procesar_texto_a_numero(r['Monto_Meta'])
+                
+                # --- LA CORRECCIÓN MATEMÁTICA ---
+                # Falta = Precio - Lo que ya tengo
+                falta_por_ahorrar = precio_meta - saldo_actual
+                
+                # Fechas
                 fecha_limite = pd.to_datetime(r['Fecha_Limite']).date()
                 hoy = date.today()
-                
-                # Calculamos meses reales restantes
                 dias_restantes = (fecha_limite - hoy).days
-                meses_restantes = max(dias_restantes / 30.44, 0.1) # 30.44 es la media de días por mes
-                
-                ahorro_necesario = m / meses_restantes
+                meses_restantes = max(dias_restantes / 30.44, 0.1)
 
                 with st.container(border=True):
-                    col_izq, col_der, col_borrar = st.columns([3, 2, 0.5])
+                    c1, c2, c3 = st.columns([3, 2, 0.5])
                     
-                    with col_izq:
+                    with c1:
                         st.markdown(f"### 🚩 {r['Objetivo']}")
-                        st.write(f"Meta Total: **{formato_visual(m)}**")
-                        st.write(f"Fecha límite: **{fecha_limite.strftime('%d/%m/%Y')}**")
+                        st.write(f"Precio: **{formato_visual(precio_meta)}**")
+                        
+                        # Barra de progreso visual
+                        if saldo_actual > 0 and precio_meta > 0:
+                            progreso = min(saldo_actual / precio_meta, 1.0)
+                            st.progress(progreso)
+                        
+                        if falta_por_ahorrar <= 0:
+                            st.success(f"🎉 ¡Objetivo cubierto! Tienes {formato_visual(saldo_actual)}")
+                        else:
+                            st.write(f"Te faltan: **{formato_visual(falta_por_ahorrar)}**")
 
-                    with col_der:
-                        if dias_restantes > 0:
+                    with c2:
+                        if falta_por_ahorrar > 0 and dias_restantes > 0:
+                            # Ahorro mensual basado en LO QUE FALTA
+                            ahorro_necesario = falta_por_ahorrar / meses_restantes
                             pct = (ahorro_necesario / sueldo_real * 100) if sueldo_real > 0 else 0
                             
-                            st.metric("Ahorro Mensual Necesario", formato_visual(ahorro_necesario))
+                            st.metric("Ahorro Mensual Real", formato_visual(ahorro_necesario))
                             
-                            if pct > 40:
-                                st.error(f"⚠️ ¡Duro! Es el {pct:.0f}% de tu sueldo")
-                            elif pct > 20:
-                                st.warning(f"📊 Es el {pct:.0f}% de tu sueldo")
-                            else:
-                                st.success(f"✅ Fácil: {pct:.0f}% de tu sueldo")
-                        else:
+                            if pct > 40: st.error(f"⚠️ {pct:.0f}% de tu sueldo")
+                            elif pct > 20: st.warning(f"📊 {pct:.0f}% de tu sueldo")
+                            else: st.success(f"✅ {pct:.0f}% de tu sueldo")
+                        elif dias_restantes <= 0 and falta_por_ahorrar > 0:
                             st.error("¡Fecha vencida!")
+                        elif falta_por_ahorrar <= 0:
+                            st.balloons()
 
-                    with col_borrar:
+                    with c3:
                         if st.button("🗑️", key=f"del_{i}"):
                             hoja_obj.delete_rows(i + 2)
                             st.cache_data.clear()
                             st.rerun()
-                    
-                    # --- EL CALENDARIO SOLICITADO ---
-                    with st.expander(f"📅 Ver Calendario de Pagos para {r['Objetivo']}"):
-                        if dias_restantes > 0:
-                            st.write(f"Si empiezas el mes que viene, este es tu plan para llegar a los **{formato_visual(m)}**:")
-                            
-                            # Generamos la tabla de meses futuros
-                            fechas_futuras = pd.date_range(start=hoy, end=fecha_limite, freq='ME') # Fin de mes
-                            
-                            if len(fechas_futuras) > 0:
-                                cuota_exacta = m / len(fechas_futuras)
-                                
-                                # Creamos el DataFrame del plan
-                                df_plan = pd.DataFrame({
-                                    "Fecha de Ahorro": fechas_futuras,
-                                    "Cuota Mensual": [cuota_exacta] * len(fechas_futuras)
-                                })
-                                
-                                # Calculamos acumulado
-                                df_plan['Acumulado Total'] = df_plan['Cuota Mensual'].cumsum()
-                                
-                                # Formateamos visualmente
-                                df_visual_plan = df_plan.copy()
-                                df_visual_plan['Fecha de Ahorro'] = df_visual_plan['Fecha de Ahorro'].dt.strftime('%B %Y') # Ej: Enero 2026
-                                df_visual_plan['Cuota Mensual'] = df_visual_plan['Cuota Mensual'].apply(formato_visual)
-                                df_visual_plan['Acumulado Total'] = df_visual_plan['Acumulado Total'].apply(formato_visual)
-                                
-                                st.dataframe(df_visual_plan, use_container_width=True, hide_index=True)
-                            else:
-                                st.warning("La fecha es este mismo mes. ¡Tienes que ahorrarlo todo ya!")
-                        else:
-                            st.warning("No se puede generar calendario para fechas pasadas.")
 
-        else:
-            st.info("No hay metas activas.")
-            
-    except Exception as e: 
-        st.error(f"Error cargando metas: {e}")
+                    # --- CALENDARIO CORREGIDO ---
+                    # Solo muestra calendario si aún te falta dinero
+                    if falta_por_ahorrar > 0 and dias_restantes > 0:
+                        with st.expander(f"📅 Ver Plan para los {formato_visual(falta_por_ahorrar)} restantes"):
+                            fechas = pd.date_range(start=hoy, end=fecha_limite, freq='ME')
+                            if len(fechas) > 0:
+                                # Repartimos LO QUE FALTA, no el total
+                                cuota = falta_por_ahorrar / len(fechas)
+                                
+                                df_plan = pd.DataFrame({
+                                    "Fecha": fechas,
+                                    "Poner al mes": [cuota] * len(fechas)
+                                })
+                                # Acumulado empieza en tu saldo actual
+                                df_plan['Acumulado'] = df_plan['Poner al mes'].cumsum() + saldo_actual
+                                
+                                # Formato visual
+                                df_ver = df_plan.copy()
+                                df_ver['Fecha'] = df_ver['Fecha'].dt.strftime('%B %Y')
+                                df_ver['Poner al mes'] = df_ver['Poner al mes'].apply(formato_visual)
+                                df_ver['Acumulado'] = df_ver['Acumulado'].apply(formato_visual)
+                                
+                                st.dataframe(df_ver, use_container_width=True, hide_index=True)
+                            else:
+                                st.warning("Queda menos de un mes. ¡Ahorra todo ya!")
+
+    except Exception as e:
+        st.info("No hay metas.")
