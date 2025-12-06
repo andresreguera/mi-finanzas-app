@@ -5,180 +5,166 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Mi Finanzas Pro", page_icon="💰", layout="centered")
-
-# --- MOTOR DE LIMPIEZA Y FORMATO (NUEVO) ---
-
-def formato_bonito(numero):
-    """
-    Imprime el dinero limpio.
-    Ej: 1500.5 -> "1,500.50 €"
-    """
-    if numero is None: return "0.00 €"
-    return "{:,.2f} €".format(numero)
-
-def limpiar_dato_del_excel(dato):
-    """
-    ESTE ES EL FILTRO NUEVO.
-    Coge lo que haya en el Excel (sea texto sucio o numero) y lo arregla.
-    """
-    # 1. Si ya es un número limpio, nos vale.
-    if isinstance(dato, (int, float)):
-        return float(dato)
-    
-    # 2. Si es texto, lo limpiamos agresivamente.
-    texto = str(dato).strip()
-    if not texto: return 0.0
-    
-    try:
-        # Quitamos comas (por si hay formatos 1,000)
-        texto_limpio = texto.replace(",", "")
-        return float(texto_limpio)
-    except:
-        return 0.0
-
-def limpiar_input_usuario(texto):
-    """
-    Para lo que escribes ahora: 
-    Acepta '9.14' o '4000'. 
-    Si pones coma '9,14' la cambia a punto para que no falle.
-    """
-    if not texto: return 0.0
-    try:
-        s = str(texto).replace(",", ".") # Arreglamos coma a punto
-        return float(s)
-    except:
-        return 0.0
+st.set_page_config(page_title="Finanzas Simple", page_icon="💰", layout="centered")
 
 # --- CONEXIÓN ---
 @st.cache_resource
 def conectar():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = st.secrets["google_creds"]
-    return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds, scope)).open("Finanzas_DB")
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = st.secrets["google_creds"]
+        return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(creds, scope)).open("Finanzas_DB")
+    except Exception as e:
+        st.error(f"Error conexión: {e}")
+        st.stop()
 
+libro = conectar()
+hoja1 = libro.sheet1
 try:
-    libro = conectar()
-    hoja1 = libro.sheet1
     hoja_obj = libro.worksheet("Objetivos")
 except:
-    st.error("Error de conexión o falta hoja 'Objetivos'.")
+    st.error("Falta hoja 'Objetivos'")
     st.stop()
 
-# --- BARRA LATERAL (HERRAMIENTAS) ---
+# --- FUNCIONES DE LIMPIEZA (SIMPLIFICADAS AL MÁXIMO) ---
+
+def numero_puro(valor):
+    """
+    ESTA ES LA CORRECCIÓN:
+    Ya NO borramos puntos.
+    Si entra 9.14 -> sale 9.14
+    Si entra "9.14" -> sale 9.14
+    Si entra "9,14" -> lo arreglamos a 9.14 (por si acaso)
+    """
+    if valor is None or valor == "": return 0.0
+    
+    # Si ya es número, devolverlo tal cual
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    
+    # Si es texto
+    s = str(valor).strip()
+    try:
+        # Solo cambiamos coma por punto (para teclados españoles)
+        # PERO NUNCA QUITAMOS EL PUNTO QUE YA EXISTA
+        s = s.replace(",", ".")
+        return float(s)
+    except:
+        return 0.0
+
+def formato_visual(numero):
+    # Muestra 9.14 € (Formato estándar)
+    return "{:,.2f} €".format(numero)
+
+# --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Configuración")
-    st.write("Si ves saldos gigantes por error, pulsa esto para reiniciar tu hoja:")
-    if st.button("⚠️ BORRAR TODO Y EMPEZAR DE CERO", type="primary"):
-        # Borra todo menos los encabezados
+    st.write("### ⚙️ Mantenimiento")
+    if st.button("⚠️ BORRAR TODO Y REINICIAR", type="primary"):
         hoja1.clear()
         hoja1.append_row(["Fecha", "Categoría", "Descripción", "Monto", "Tipo"])
-        st.success("¡Base de datos reiniciada! Recarga la página.")
         st.cache_data.clear()
+        st.success("Tabla vaciada. Recarga la página.")
 
 # --- INTERFAZ ---
 st.title("💰 Mi Cartera")
 tab1, tab2 = st.tabs(["📝 Diario", "🎯 Objetivos"])
 
-# ==========================================================
-# PESTAÑA 1: NUEVA LÓGICA DE SALDOS
-# ==========================================================
+# PESTAÑA 1: DIARIO
 with tab1:
-    # 1. Descargamos datos
+    # 1. Leer Excel
     try:
         data = hoja1.get_all_records()
         df = pd.DataFrame(data)
     except: df = pd.DataFrame()
 
-    # 2. RECONSTRUCCIÓN DE CÁLCULOS (MOTOR NUEVO)
-    ingresos = 0.0
-    gastos = 0.0
-    saldo = 0.0
+    # 2. Calcular Saldos
+    ingresos, gastos, saldo = 0.0, 0.0, 0.0
 
     if not df.empty and 'Monto' in df.columns:
-        # Pasamos la "aspiradora" por cada fila del Excel
-        df['Monto_Limpio'] = df['Monto'].apply(limpiar_dato_del_excel)
+        # Limpiamos columna Monto respetando el punto
+        df['Monto_Num'] = df['Monto'].apply(numero_puro)
         
-        # Sumamos solo lo limpio
-        ingresos = df[df['Monto_Limpio'] > 0]['Monto_Limpio'].sum()
-        gastos = df[df['Monto_Limpio'] < 0]['Monto_Limpio'].sum()
-        saldo = df['Monto_Limpio'].sum()
+        ingresos = df[df['Monto_Num'] > 0]['Monto_Num'].sum()
+        gastos = df[df['Monto_Num'] < 0]['Monto_Num'].sum()
+        saldo = df['Monto_Num'].sum()
 
-    # 3. IMPRESIÓN DE DATOS (REHECHA)
+    # 3. Mostrar Tarjetas
     c1, c2, c3 = st.columns(3)
-    c1.metric("Saldo Total", formato_bonito(saldo))
-    c2.metric("Ingresos", formato_bonito(ingresos))
-    c3.metric("Gastos", formato_bonito(gastos), delta_color="inverse")
+    c1.metric("Saldo Actual", formato_visual(saldo))
+    c2.metric("Ingresos", formato_visual(ingresos))
+    c3.metric("Gastos", formato_visual(gastos), delta_color="inverse")
 
     st.divider()
 
-    # 4. FORMULARIO
+    # 4. Formulario
     st.subheader("Nuevo Movimiento")
-    with st.form("add"):
-        c_a, c_b = st.columns(2)
-        fecha = c_a.date_input("Fecha")
+    with st.form("movimiento"):
+        col_a, col_b = st.columns(2)
+        fecha = col_a.date_input("Fecha")
+        # Texto de ayuda claro
+        monto_txt = col_a.text_input("Cantidad", placeholder="Ej: 9.14")
         
-        # Input texto para flexibilidad
-        monto_in = c_a.text_input("Cantidad", placeholder="Ej: 9.14 o 4000")
-        
-        tipo = c_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
-        cat = c_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
+        tipo = col_b.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo"])
+        cat = col_b.selectbox("Categoría", ["Comida", "Transporte", "Casa", "Ocio", "Ahorro", "Nómina"])
         desc = st.text_input("Concepto")
         
-        # Limpieza al vuelo
-        val_real = limpiar_input_usuario(monto_in)
-        if monto_in: st.caption(f"Se guardará: {val_real}")
+        # Procesar
+        val_real = numero_puro(monto_txt)
         
+        # Chivato para que veas qué va a pasar antes de guardar
+        if monto_txt:
+            st.caption(f"👀 Se guardará como: {val_real}")
+
         if st.form_submit_button("Guardar"):
             if val_real > 0:
                 final = -val_real if tipo == "Gasto" else val_real
                 hoja1.append_row([str(fecha), cat, desc, final, tipo])
                 st.success("Guardado.")
                 st.rerun()
+            else:
+                st.warning("Introduce una cantidad mayor a 0")
 
-    # 5. TABLA HISTORIAL (FORMATO NUEVO)
+    # 5. Tabla
     if not df.empty:
         df_show = df.copy()
-        df_show['Monto'] = df_show['Monto_Limpio'].apply(formato_bonito)
+        df_show['Monto'] = df_show['Monto_Num'].apply(formato_visual)
         st.dataframe(df_show[['Fecha', 'Categoria', 'Monto', 'Concepto']].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-# ==========================================================
 # PESTAÑA 2: OBJETIVOS
-# ==========================================================
 with tab2:
     st.header("🎯 Metas")
     with st.form("obj"):
         nom = st.text_input("Nombre")
-        obj_in = st.text_input("Cantidad Meta", placeholder="Ej: 1500.00")
-        f_fin = st.date_input("Fecha Fin")
+        obj_txt = st.text_input("Cantidad Meta", placeholder="Ej: 1500.00")
+        f_fin = st.date_input("Fecha Límite")
         
-        obj_val = limpiar_input_usuario(obj_in)
+        obj_val = numero_puro(obj_txt)
         
         if st.form_submit_button("Crear Meta") and obj_val > 0:
             hoja_obj.append_row([nom, obj_val, str(f_fin), str(date.today())])
             st.rerun()
-
+            
     try:
-        data_obj = hoja_obj.get_all_records()
-        df_o = pd.DataFrame(data_obj)
+        data_o = hoja_obj.get_all_records()
+        df_o = pd.DataFrame(data_o)
     except: df_o = pd.DataFrame()
 
     if not df_o.empty:
         st.divider()
         sueldo_in = st.text_input("Tu sueldo mensual", value="1500")
-        sueldo = limpiar_input_usuario(sueldo_in)
+        sueldo = numero_puro(sueldo_in)
 
         for i, row in df_o.iterrows():
-            meta = limpiar_dato_del_excel(row['Monto_Meta'])
+            meta = numero_puro(row['Monto_Meta'])
             dias = (pd.to_datetime(row['Fecha_Limite']).date() - date.today()).days
             meses = max(dias/30, 0.1)
             ahorro = meta/meses
             
             with st.container(border=True):
-                col_a, col_b = st.columns([3,1])
-                col_a.markdown(f"### {row['Objetivo']}")
-                col_a.write(f"Meta: **{formato_bonito(meta)}**")
+                c1, c2 = st.columns([3,1])
+                c1.markdown(f"### {row['Objetivo']}")
+                c1.write(f"Meta: **{formato_visual(meta)}**")
                 if dias>0:
-                    col_a.info(f"Ahorra **{formato_bonito(ahorro)}/mes**")
+                    c1.info(f"Ahorra **{formato_visual(ahorro)}/mes**")
                 else:
-                    col_a.success("¡Tiempo cumplido!")
+                    c1.success("Finalizado")
