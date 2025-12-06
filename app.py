@@ -26,34 +26,27 @@ except:
     st.error("Falta hoja 'Objetivos'")
     st.stop()
 
-# --- EL CEREBRO DE LA OPERACIÓN (EUROPEO ESTRICTO) ---
+# --- EL CEREBRO DE LA OPERACIÓN (CORREGIDO) ---
 def forzar_formato_europeo(valor):
     """
-    Esta función es la solución definitiva.
-    Convierte CUALQUIER COSA a un número con decimales correcto.
-    
-    Reglas:
-    - "4139,14" -> 4139.14 (La coma se vuelve punto)
-    - "4.139,14" -> 4139.14 (El punto de mil se borra, la coma se vuelve punto)
-    - 4139.14 (número) -> 4139.14 (Se queda igual)
+    CORRECCIÓN: Se ha simplificado para asegurar que siempre elimine los puntos de miles
+    y cambie la coma por punto para el cálculo interno de Python.
     """
     if valor is None or str(valor).strip() == "":
         return 0.0
     
-    # 1. Convertimos a texto para analizarlo
-    texto = str(valor).strip()
-    
-    # CASO ESPECIAL: Si Google ya nos da un número puro (float), lo devolvemos
+    # Si ya es número (float/int), lo devolvemos tal cual
     if isinstance(valor, (int, float)):
         return float(valor)
 
-    try:
-        # 2. Si tiene PUNTOS y COMAS (ej: 4.139,14), borramos el punto primero
-        if "." in texto and "," in texto:
-            texto = texto.replace(".", "") # Queda "4139,14"
+    texto = str(valor).strip()
 
-        # 3. TRANSFORMACIÓN CLAVE: Cambiamos la COMA por PUNTO
-        # "4139,14" se convierte en "4139.14" (Esto es lo que Python entiende)
+    try:
+        # 1. Eliminar SIEMPRE los puntos (separadores de miles)
+        # Esto arregla el error si pones "1.000" sin decimales
+        texto = texto.replace(".", "") 
+
+        # 2. Cambiar la coma por punto para que Python entienda el decimal
         texto = texto.replace(",", ".")
         
         return float(texto)
@@ -118,15 +111,20 @@ with tab1:
         if st.form_submit_button("Guardar"):
             if val_guardar > 0:
                 final = -val_guardar if tipo == "Gasto" else val_guardar
-                # Guardamos tal cual el valor calculado
-                hoja1.append_row([str(fecha), cat, desc, final, tipo])
+                
+                # --- CORRECCIÓN CLAVE AQUÍ ---
+                # Convertimos el número de vuelta a STRING CON COMA antes de enviar a Google.
+                # Si enviamos 4139.14 (float), Google Sheets (ES) lee el punto como miles -> 413914
+                # Al enviar "4139,14" (string), Google Sheets lo entiende perfectamente.
+                valor_para_sheets = str(final).replace(".", ",")
+                
+                hoja1.append_row([str(fecha), cat, desc, valor_para_sheets, tipo])
                 st.success("Guardado.")
                 st.rerun()
             else:
                 st.warning("Introduce una cantidad válida.")
 
     # 4. TABLA DE LA VERDAD (DEBUG)
-    # Esto te mostrará qué está pasando "bajo el capó"
     if not df.empty:
         st.subheader("🔍 Auditoría de Datos")
         st.write("Mira esta tabla para ver si el Excel nos está mandando el dato mal:")
@@ -147,8 +145,11 @@ with tab2:
         obj_txt = st.text_input("Cantidad", placeholder="Ej: 1500,00")
         f_fin = st.date_input("Fecha Límite")
         obj_val = forzar_formato_europeo(obj_txt)
+        
         if st.form_submit_button("Crear") and obj_val > 0:
-            hoja_obj.append_row([nom, obj_val, str(f_fin), str(date.today())])
+            # --- CORRECCIÓN TAMBIÉN AQUI ---
+            valor_obj_sheets = str(obj_val).replace(".", ",")
+            hoja_obj.append_row([nom, valor_obj_sheets, str(f_fin), str(date.today())])
             st.rerun()
     
     try:
@@ -156,6 +157,8 @@ with tab2:
         dfo = pd.DataFrame(do)
         if not dfo.empty:
             for i, r in dfo.iterrows():
-                m = forzar_formato_europeo(r['Monto_Meta'])
-                st.info(f"Meta: {row['Objetivo']} - {mostrar_euros(m)}")
+                # Corregimos la lectura aqui también por seguridad
+                m = forzar_formato_europeo(r['Monto_Meta']) if 'Monto_Meta' in r else 0
+                nom_obj = r['Objetivo'] if 'Objetivo' in r else "Meta"
+                st.info(f"Meta: {nom_obj} - {mostrar_euros(m)}")
     except: pass
