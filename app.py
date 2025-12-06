@@ -7,26 +7,49 @@ from datetime import datetime, date
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Mi Finanzas Pro", page_icon="📈", layout="centered")
 
-# --- FUNCIÓN AUXILIAR: FORMATO EUROPEO (1.000,00€) ---
+# --- FUNCIONES AUXILIARES DE FORMATO ---
+
 def formato_euros(valor):
+    """Convierte un número (float) a formato visual español: 1.234,56€"""
     try:
-        # Formatea con separador de miles coma y decimal punto (formato USA estandar)
-        # Ejemplo: 1234.56 -> "1,234.56"
+        # Formateamos primero estilo USA: 1,234.56
         texto = f"{float(valor):,.2f}"
-        # Intercambiamos los caracteres: lo que era coma ahora es punto, y viceversa
-        texto_europeo = texto.replace(",", "X").replace(".", ",").replace("X", ".")
-        return f"{texto_europeo}€"
+        # Invertimos los signos: comas por puntos y puntos por comas
+        # 1. Cambiamos la coma por una X temporal
+        texto = texto.replace(",", "X")
+        # 2. Cambiamos el punto por coma
+        texto = texto.replace(".", ",")
+        # 3. Cambiamos la X por punto
+        texto = texto.replace("X", ".")
+        return f"{texto}€"
     except:
         return "0,00€"
 
-# --- FUNCIÓN AUXILIAR: LIMPIAR INPUT (Admite comas y puntos) ---
 def limpiar_input_dinero(texto_input):
+    """
+    Lógica ESTRICTA Europea:
+    - Los puntos "." se ignoran (son separadores de miles).
+    - Las comas "," son los decimales.
+    Ejemplos que arregla:
+    "4139,14" -> 4139.14 (Correcto)
+    "4.139,14" -> 4139.14 (Correcto)
+    "9,14" -> 9.14 (Correcto)
+    """
+    if not texto_input:
+        return 0.0
+    
+    texto = str(texto_input).strip()
+    
     try:
-        if isinstance(texto_input, (int, float)):
-            return float(texto_input)
-        # Reemplazamos la coma por punto para que Python entienda el decimal
-        texto_limpio = str(texto_input).replace(",", ".")
-        return float(texto_limpio)
+        # PASO 1: Eliminar todos los puntos (separadores de miles)
+        # Si alguien pone 4.139,14 se convierte en 4139,14
+        texto = texto.replace(".", "")
+        
+        # PASO 2: Cambiar la coma por punto (para que Python entienda el decimal)
+        # 4139,14 se convierte en 4139.14
+        texto = texto.replace(",", ".")
+        
+        return float(texto)
     except ValueError:
         return 0.0
 
@@ -73,7 +96,7 @@ with tab1:
         df = pd.DataFrame()
 
     if not df.empty and 'Monto' in df.columns:
-        # Convertimos todo a números asegurándonos de que entienda decimales
+        # Forzamos la conversión a número por si Sheets lo guardó como texto
         df['Monto'] = pd.to_numeric(df['Monto'], errors='coerce').fillna(0)
         
         ingresos = df[df['Monto'] > 0]['Monto'].sum()
@@ -82,7 +105,7 @@ with tab1:
     else:
         ingresos, gastos, saldo_total = 0, 0, 0
 
-    # Tarjetas KPI (Usando el nuevo formato europeo)
+    # Tarjetas KPI
     col1, col2, col3 = st.columns(3)
     col1.metric("Saldo Actual", formato_euros(saldo_total))
     col2.metric("Ingresos", formato_euros(ingresos), delta_color="normal")
@@ -96,8 +119,8 @@ with tab1:
         col_a, col_b = st.columns(2)
         with col_a:
             fecha = st.date_input("Fecha", datetime.now())
-            # CAMBIO IMPORTANTE: Usamos text_input para permitir comas
-            monto_txt = st.text_input("Monto (€)", value="", placeholder="Ej: 9,14")
+            # Input de texto para permitir formato libre (comas)
+            monto_txt = st.text_input("Monto (€)", value="", placeholder="Ej: 4139,14")
         with col_b:
             tipo = st.selectbox("Tipo", ["Gasto", "Ingreso", "Sueldo Mensual"])
             categoria = st.selectbox("Categoría", ["Comida", "Transporte", "Vivienda", "Ocio", "Salud", "Ahorro", "Otros", "Nómina/Sueldo"])
@@ -106,15 +129,17 @@ with tab1:
         guardar = st.form_submit_button("💾 Guardar", use_container_width=True)
 
     if guardar:
-        # Convertimos el texto (con coma) a número (con punto)
+        # Aplicamos la limpieza ESTRICTA europea
         monto_num = limpiar_input_dinero(monto_txt)
         
         if monto_num > 0:
             es_gasto = tipo == "Gasto"
             valor_final = -monto_num if es_gasto else monto_num
             
+            # Guardamos en Google Sheets (usando float para que Sheet entienda que es número)
             datos = [str(fecha), categoria, concepto, valor_final, tipo]
             hoja_movimientos.append_row(datos)
+            
             st.success(f"¡Movimiento de {formato_euros(monto_num)} guardado!")
             st.rerun()
         else:
@@ -123,8 +148,16 @@ with tab1:
     # Historial rápido
     if not df.empty:
         st.caption("Últimos movimientos")
-        # Mostramos una tabla simple. Streamlit la formatea automático, pero los datos están bien.
-        st.dataframe(df.tail(5).sort_index(ascending=False)[['Fecha', 'Categoria', 'Monto', 'Concepto']], use_container_width=True, hide_index=True)
+        # Creamos una copia visual para formatear la columna Monto
+        df_visual = df.tail(5).sort_index(ascending=False).copy()
+        # Aplicamos el formato bonito solo para ver (no afecta a los cálculos)
+        df_visual['Monto'] = df_visual['Monto'].apply(formato_euros)
+        
+        st.dataframe(
+            df_visual[['Fecha', 'Categoria', 'Monto', 'Concepto']], 
+            use_container_width=True, 
+            hide_index=True
+        )
 
 # ==========================================================
 # PESTAÑA 2: OBJETIVOS
@@ -134,18 +167,18 @@ with tab2:
     
     with st.expander("➕ Añadir Nuevo Objetivo"):
         with st.form("form_objetivo"):
-            obj_nombre = st.text_input("Nombre de la meta", placeholder="Ej: Viaje a Japón")
-            # También cambiamos a texto para permitir comas
-            obj_monto_txt = st.text_input("¿Cuánto necesitas? (€)", value="", placeholder="Ej: 1500,00")
+            obj_nombre = st.text_input("Nombre de la meta", placeholder="Ej: Coche Nuevo")
+            obj_monto_txt = st.text_input("¿Cuánto necesitas? (€)", value="", placeholder="Ej: 15000,00")
             obj_fecha = st.date_input("¿Para cuándo?", min_value=datetime.now())
             
             submit_obj = st.form_submit_button("Crear Objetivo")
             
             if submit_obj and obj_nombre:
                 obj_monto_num = limpiar_input_dinero(obj_monto_txt)
+                
                 if obj_monto_num > 0:
                     hoja_objetivos.append_row([obj_nombre, obj_monto_num, str(obj_fecha), str(date.today())])
-                    st.success("¡Objetivo fijado!")
+                    st.success(f"¡Objetivo de {formato_euros(obj_monto_num)} fijado!")
                     st.rerun()
                 else:
                     st.warning("Introduce un monto válido.")
@@ -159,14 +192,18 @@ with tab2:
         df_obj = pd.DataFrame()
 
     if not df_obj.empty:
-        # Input de sueldo también flexible con comas
         sueldo_txt = st.text_input("💰 Tu Sueldo Mensual (para calcular)", value="1500,00")
         sueldo_estimado = limpiar_input_dinero(sueldo_txt)
 
         st.subheader("Plan de Ahorro")
         
         for index, row in df_obj.iterrows():
-            meta = float(row['Monto_Meta']) # Aseguramos que sea float
+            # Convertimos a número con seguridad
+            try:
+                meta = float(str(row['Monto_Meta']).replace(",", ".")) 
+            except:
+                meta = limpiar_input_dinero(row['Monto_Meta'])
+
             fecha_limite = pd.to_datetime(row['Fecha_Limite']).date()
             hoy = date.today()
             
@@ -182,18 +219,17 @@ with tab2:
                 c1.markdown(f"Meta: **{formato_euros(meta)}** para el **{fecha_limite.strftime('%d/%m/%Y')}**")
                 
                 if dias_restantes > 0:
-                    c1.info(f"Necesitas ahorrar **{formato_euros(ahorro_mensual_necesario)} al mes** durante los próximos {meses_restantes:.1f} meses.")
+                    c1.info(f"Necesitas ahorrar **{formato_euros(ahorro_mensual_necesario)} al mes** durante {meses_restantes:.1f} meses.")
                     
                     if sueldo_estimado > 0:
                         porcentaje_sueldo = (ahorro_mensual_necesario / sueldo_estimado) * 100
                         if porcentaje_sueldo > 50:
-                            c1.error(f"⚠️ ¡Cuidado! Esto requiere el {porcentaje_sueldo:.0f}% de tu sueldo.")
+                            c1.error(f"⚠️ ¡Cuidado! Es el {porcentaje_sueldo:.0f}% de tu sueldo.")
                         elif porcentaje_sueldo > 20:
-                            c1.warning(f"📊 Supone un {porcentaje_sueldo:.0f}% de tu sueldo.")
+                            c1.warning(f"📊 Es el {porcentaje_sueldo:.0f}% de tu sueldo.")
                         else:
-                            c1.success(f"✅ Factible: Solo es el {porcentaje_sueldo:.0f}% de tu sueldo.")
+                            c1.success(f"✅ Factible: {porcentaje_sueldo:.0f}% de tu sueldo.")
                 else:
                     c1.success("¡La fecha ha llegado!")
-                    
     else:
-        st.info("No tienes objetivos activos. ¡Crea uno arriba!")
+        st.info("No tienes objetivos activos.")
