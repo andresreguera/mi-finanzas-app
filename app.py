@@ -13,36 +13,25 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. ESTILO NATIVO LIMPIO (MODO FANTASMA) ---
-# Eliminamos colores forzados. Dejamos que el sistema decida (Claro/Oscuro).
-# Solo ocultamos la interfaz de Streamlit para que parezca una App.
+# --- 2. ESTILO NATIVO LIMPIO ---
 hide_styles = """
     <style>
-        /* Ocultar barras superiores, menú hamburguesa y decoración */
         header {visibility: hidden !important; height: 0px !important;}
         div[data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
         div[data-testid="stDecoration"] {display: none !important; height: 0px !important;}
-        
-        /* Ocultar pie de página */
         footer {display: none !important;}
         #MainMenu {visibility: hidden !important;}
-        
-        /* Ajustar espaciado para móviles (Subir contenido) */
         .block-container {
             padding-top: 2rem !important;
             padding-bottom: 5rem !important;
         }
-
-        /* Hacer que los contenedores se integren con el fondo (Sutil) */
         div[data-testid="stExpander"], div.stContainer {
-            border: 1px solid rgba(128, 128, 128, 0.2); /* Borde muy suave */
+            border: 1px solid rgba(128, 128, 128, 0.2);
             border-radius: 10px;
-            background-color: transparent; /* Fondo transparente para adaptarse al tema */
+            background-color: transparent;
         }
-        
-        /* Ajuste sutil en métricas para que no sean cajas blancas */
         div[data-testid="metric-container"] {
-            background-color: rgba(128, 128, 128, 0.05); /* Ligeramente distinto al fondo */
+            background-color: rgba(128, 128, 128, 0.05);
             border: none;
             border-radius: 10px;
             padding: 10px;
@@ -69,12 +58,22 @@ except: st.error("Falta hoja Objetivos"); st.stop()
 try: hoja_deudas = libro.worksheet("Deudas")
 except: hoja_deudas = None
 
-# --- 4. FUNCIONES ---
+# --- 4. FUNCIONES DE LIMPIEZA (INDISPENSABLES) ---
 def procesar_texto_a_numero(valor):
+    """
+    Convierte cualquier entrada (texto, coma, punto) a un número float válido.
+    """
     texto = str(valor).strip()
     if not texto: return 0.0
-    try: return float(texto.replace(".", "").replace(",", "."))
-    except: return 0.0
+    try:
+        # 1. Eliminar puntos de miles (si los hay)
+        if "." in texto and "," in texto:
+            texto = texto.replace(".", "")
+        # 2. Reemplazar coma decimal por punto
+        texto = texto.replace(",", ".")
+        return float(texto)
+    except:
+        return 0.0
 
 def formato_visual(numero):
     try: return "{:,.2f} €".format(float(numero)).replace(",", "X").replace(".", ",").replace("X", ".")
@@ -86,14 +85,17 @@ def saludo_dinamico():
     elif 12 <= h < 20: return "Buenas tardes"
     else: return "Buenas noches"
 
-# --- 5. BARRA LATERAL ---
+# --- 5. BARRA LATERAL (RESET) ---
 with st.sidebar:
     st.header("Configuración")
     if st.button("⚠️ Reiniciar Base de Datos", type="primary"):
+        # Reset Diario
         hoja1.clear(); hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
+        # Reset Deudas (CORREGIDO: Asegura que las columnas sean correctas)
         if hoja_deudas:
-            hoja_deudas.clear(); hoja_deudas.append_row(["Fecha", "Persona", "Concepto", "Monto", "Tipo"])
-        st.cache_data.clear(); st.success("Datos borrados."); st.rerun()
+            hoja_deudas.clear()
+            hoja_deudas.append_row(["Fecha", "Persona", "Concepto", "Monto", "Tipo"])
+        st.cache_data.clear(); st.success("Datos borrados y columnas corregidas."); st.rerun()
 
 # --- 6. CÁLCULOS ---
 saldo_actual, ingresos, gastos = 0.0, 0.0, 0.0
@@ -110,7 +112,7 @@ try:
         saldo_actual = df_movimientos['Monto_Calc'].sum()
 except: pass
 
-# --- 7. HEADER NATIVO ---
+# --- 7. HEADER ---
 st.title(f"{saludo_dinamico()}, Andrés")
 st.caption(f"Resumen a {date.today().strftime('%d/%m/%Y')}")
 
@@ -128,7 +130,7 @@ tab1, tab2, tab3, tab4 = st.tabs(["Diario", "Reporte", "Metas", "Deudas"])
 with tab1:
     st.subheader("📝 Nuevo Registro")
     with st.container():
-        with st.form("mov", border=False): # border=False para que se funda con el fondo
+        with st.form("mov", border=False):
             c_a, c_b = st.columns(2)
             fecha = c_a.date_input("Fecha")
             monto_txt = c_a.text_input("Cantidad (€)", placeholder="0,00")
@@ -138,11 +140,12 @@ with tab1:
             
             val = procesar_texto_a_numero(monto_txt)
             
-            # Botón nativo (se adapta al tema claro/oscuro automáticamente)
             if st.form_submit_button("Guardar Movimiento", use_container_width=True):
                 if val > 0:
                     final = -val if tipo == "Gasto" else val
-                    hoja1.append_row([fecha.strftime("%d/%m/%Y"), cat, desc, str(final).replace(".", ","), tipo])
+                    # Guardamos con coma para Excel
+                    val_excel = str(final).replace(".", ",")
+                    hoja1.append_row([fecha.strftime("%d/%m/%Y"), cat, desc, val_excel, tipo])
                     st.toast("Guardado correctamente")
                     st.cache_data.clear(); st.rerun()
                 else: st.warning("Introduce una cantidad válida")
@@ -176,7 +179,6 @@ with tab2:
                 st.subheader("Gastos por Categoría")
                 df_g['Abs'] = df_g['Monto_Calc'].abs()
                 fig = px.pie(df_g, values='Abs', names='Categoría', hole=0.5)
-                # Esto hace que el gráfico use texto blanco en modo oscuro y negro en modo claro
                 fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
                 st.plotly_chart(fig, use_container_width=True)
             else: st.success("Sin gastos este mes")
@@ -191,7 +193,9 @@ with tab3:
             fin = st.date_input("Fecha Fin")
             v = procesar_texto_a_numero(cant)
             if st.form_submit_button("Crear Meta", use_container_width=True) and v>0:
-                hoja_obj.append_row([nom, str(v).replace(".", ","), str(fin), str(date.today())])
+                # Guardamos con coma
+                val_excel = str(v).replace(".", ",")
+                hoja_obj.append_row([nom, val_excel, str(fin), str(date.today())])
                 st.cache_data.clear(); st.rerun()
     try:
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
@@ -205,8 +209,7 @@ with tab3:
                 dias = (pd.to_datetime(r['Fecha_Limite']).date() - date.today()).days
                 meses = max(dias/30.44, 0.1)
                 
-                # Contenedor nativo (borde sutil, fondo transparente)
-                with st.container(border=True):
+                with st.container():
                     col_txt, col_num, col_del = st.columns([3, 2, 0.5])
                     with col_txt:
                         st.markdown(f"**{r['Objetivo']}**")
@@ -216,7 +219,6 @@ with tab3:
                         if falta > 0 and dias > 0:
                             mensual = falta/meses
                             pct = (mensual/sueldo*100) if sueldo > 0 else 0
-                            # Usamos emojis en lugar de colores hardcodeados para mejor compatibilidad
                             alert = "🟢" if pct < 20 else "🟠" if pct < 40 else "🔴"
                             st.write(f"{alert} **{formato_visual(mensual)}/mes**")
                             st.caption(f"{pct:.0f}% del ingreso")
@@ -237,35 +239,49 @@ with tab3:
                                 st.dataframe(df_p, use_container_width=True, hide_index=True)
     except: pass
 
-# PESTAÑA 4: DEUDAS
+# PESTAÑA 4: DEUDAS (SOLUCIÓN AQUÍ)
 with tab4:
     with st.expander("➕ Apuntar Deuda"):
         with st.form("new_deuda"):
             c1, c2 = st.columns(2)
-            p = c1.text_input("Persona")
-            m = c1.text_input("€")
-            c = c2.text_input("Motivo")
+            p = c1.text_input("Persona / Entidad")
+            m = c1.text_input("Importe (€)", placeholder="50,00")
+            c = c2.text_input("Motivo / Concepto")
             t = c2.radio("Tipo", ["🔴 DEBO", "🟢 ME DEBEN"])
-            v = procesar_texto_a_numero(m)
-            if st.form_submit_button("Guardar", use_container_width=True) and v>0:
-                tg = "DEBO" if "🔴" in t else "ME DEBEN"
-                hoja_deudas.append_row([date.today().strftime("%d/%m/%Y"), p, c, str(v).replace(".", ","), tg])
-                st.cache_data.clear(); st.rerun()
+            
+            # Limpieza crítica del número
+            val = procesar_texto_a_numero(m)
+            
+            if st.form_submit_button("Guardar", use_container_width=True):
+                if val > 0:
+                    tg = "DEBO" if "🔴" in t else "ME DEBEN"
+                    # Aseguramos formato español al guardar en Excel
+                    val_excel = str(val).replace(".", ",")
+                    
+                    # 1. Fecha, 2. Persona, 3. Concepto, 4. Monto, 5. Tipo
+                    hoja_deudas.append_row([date.today().strftime("%d/%m/%Y"), p, c, val_excel, tg])
+                    st.toast("Deuda registrada")
+                    st.cache_data.clear(); st.rerun()
+                else:
+                    st.warning("El importe debe ser mayor a 0")
     try:
+        # Forzamos lectura como TEXTO para evitar líos de puntos/comas
         dd = hoja_deudas.get_all_records(numericise_ignore=['all'])
         if dd:
             st.divider()
             for i, r in pd.DataFrame(dd).iterrows():
+                # Procesamos el texto del Excel a número Python
                 imp = procesar_texto_a_numero(r['Monto'])
-                with st.container(border=True):
+                
+                with st.container():
                     c1, c2 = st.columns([4,1])
                     with c1:
                         pre = "🔴 Debo a" if r['Tipo']=="DEBO" else "🟢 Me debe"
                         st.markdown(f"{pre} **{r['Persona']}**: {formato_visual(imp)}")
                         st.caption(f"{r['Concepto']} | {r['Fecha']}")
                     with c2:
-                        st.write("")
+                        st.write("") # Espaciador
                         if st.button("✅", key=f"s{i}"):
                             hoja_deudas.delete_rows(i+2); st.toast("Saldado"); st.cache_data.clear(); st.rerun()
-        else: st.caption("No tienes deudas.")
+        else: st.caption("No tienes deudas pendientes.")
     except: pass
