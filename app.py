@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. ESTILO NATIVO LIMPIO ---
+# --- 2. ESTILO NATIVO (MODO CLARO/OSCURO) ---
 hide_styles = """
     <style>
         header {visibility: hidden !important; height: 0px !important;}
@@ -25,11 +25,13 @@ hide_styles = """
             padding-top: 2rem !important;
             padding-bottom: 5rem !important;
         }
+        /* Contenedores sutiles */
         div[data-testid="stExpander"], div.stContainer {
             border: 1px solid rgba(128, 128, 128, 0.2);
             border-radius: 10px;
             background-color: transparent;
         }
+        /* Métricas integradas */
         div[data-testid="metric-container"] {
             background-color: rgba(128, 128, 128, 0.05);
             border: none;
@@ -58,19 +60,12 @@ except: st.error("Falta hoja Objetivos"); st.stop()
 try: hoja_deudas = libro.worksheet("Deudas")
 except: hoja_deudas = None
 
-# --- 4. FUNCIONES DE LIMPIEZA (INDISPENSABLES) ---
+# --- 4. FUNCIONES ---
 def procesar_texto_a_numero(valor):
-    """
-    Convierte cualquier entrada (texto, coma, punto) a un número float válido.
-    """
     texto = str(valor).strip()
     if not texto: return 0.0
     try:
-        # 1. Eliminar puntos de miles (si los hay)
-        if "." in texto and "," in texto:
-            texto = texto.replace(".", "")
-        # 2. Reemplazar coma decimal por punto
-        texto = texto.replace(",", ".")
+        texto = texto.replace(".", "").replace(",", ".")
         return float(texto)
     except:
         return 0.0
@@ -88,14 +83,21 @@ def saludo_dinamico():
 # --- 5. BARRA LATERAL (RESET) ---
 with st.sidebar:
     st.header("Configuración")
-    if st.button("⚠️ Reiniciar Base de Datos", type="primary"):
-        # Reset Diario
-        hoja1.clear(); hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
-        # Reset Deudas (CORREGIDO: Asegura que las columnas sean correctas)
+    st.info("Pulsa abajo si no ves las deudas o los datos salen raros.")
+    if st.button("⚠️ REINICIAR TABLAS (OBLIGATORIO)", type="primary"):
+        # 1. Diario
+        hoja1.clear()
+        hoja1.append_row(["Fecha", "Categoría", "Concepto", "Monto", "Tipo"])
+        
+        # 2. Deudas (Esto arregla que no se vean)
         if hoja_deudas:
             hoja_deudas.clear()
+            # Escribimos los encabezados exactos que busca el código
             hoja_deudas.append_row(["Fecha", "Persona", "Concepto", "Monto", "Tipo"])
-        st.cache_data.clear(); st.success("Datos borrados y columnas corregidas."); st.rerun()
+            
+        st.cache_data.clear()
+        st.success("✅ Tablas reparadas. Ya puedes guardar datos.")
+        st.rerun()
 
 # --- 6. CÁLCULOS ---
 saldo_actual, ingresos, gastos = 0.0, 0.0, 0.0
@@ -139,14 +141,12 @@ with tab1:
             desc = st.text_input("Concepto (Opcional)")
             
             val = procesar_texto_a_numero(monto_txt)
-            
             if st.form_submit_button("Guardar Movimiento", use_container_width=True):
                 if val > 0:
                     final = -val if tipo == "Gasto" else val
-                    # Guardamos con coma para Excel
                     val_excel = str(final).replace(".", ",")
                     hoja1.append_row([fecha.strftime("%d/%m/%Y"), cat, desc, val_excel, tipo])
-                    st.toast("Guardado correctamente")
+                    st.toast("Guardado")
                     st.cache_data.clear(); st.rerun()
                 else: st.warning("Introduce una cantidad válida")
 
@@ -171,7 +171,6 @@ with tab2:
             i_m = df_m[df_m['Monto_Calc'] > 0]['Monto_Calc'].sum()
             g_m = df_m[df_m['Monto_Calc'] < 0]['Monto_Calc'].sum()
             ahorro = i_m + g_m
-            
             st.info(f"Balance de {datetime(2022, mes, 1).strftime('%B')}: **{formato_visual(ahorro)}**")
             
             df_g = df_m[df_m['Monto_Calc'] < 0].copy()
@@ -193,16 +192,13 @@ with tab3:
             fin = st.date_input("Fecha Fin")
             v = procesar_texto_a_numero(cant)
             if st.form_submit_button("Crear Meta", use_container_width=True) and v>0:
-                # Guardamos con coma
-                val_excel = str(v).replace(".", ",")
-                hoja_obj.append_row([nom, val_excel, str(fin), str(date.today())])
+                hoja_obj.append_row([nom, str(v).replace(".", ","), str(fin), str(date.today())])
                 st.cache_data.clear(); st.rerun()
     try:
         do = hoja_obj.get_all_records(numericise_ignore=['all'])
         if do:
             st.divider()
             sueldo = procesar_texto_a_numero(st.text_input("Tu Ingreso Mensual", "200,00"))
-            
             for i, r in pd.DataFrame(do).iterrows():
                 m = procesar_texto_a_numero(r['Monto_Meta'])
                 falta = m - saldo_actual
@@ -239,49 +235,66 @@ with tab3:
                                 st.dataframe(df_p, use_container_width=True, hide_index=True)
     except: pass
 
-# PESTAÑA 4: DEUDAS (SOLUCIÓN AQUÍ)
+# PESTAÑA 4: DEUDAS (SOLUCIONADO)
 with tab4:
-    with st.expander("➕ Apuntar Deuda"):
+    st.header("💸 Deudas y Préstamos")
+    
+    with st.expander("➕ Apuntar Nueva Deuda", expanded=False):
         with st.form("new_deuda"):
             c1, c2 = st.columns(2)
             p = c1.text_input("Persona / Entidad")
             m = c1.text_input("Importe (€)", placeholder="50,00")
-            c = c2.text_input("Motivo / Concepto")
-            t = c2.radio("Tipo", ["🔴 DEBO", "🟢 ME DEBEN"])
+            c = c2.text_input("Motivo")
+            t = c2.radio("Tipo", ["🔴 DEBO (Pagar)", "🟢 ME DEBEN (Cobrar)"])
             
-            # Limpieza crítica del número
-            val = procesar_texto_a_numero(m)
+            v = procesar_texto_a_numero(m)
             
             if st.form_submit_button("Guardar", use_container_width=True):
-                if val > 0:
+                if v > 0:
                     tg = "DEBO" if "🔴" in t else "ME DEBEN"
-                    # Aseguramos formato español al guardar en Excel
-                    val_excel = str(val).replace(".", ",")
-                    
-                    # 1. Fecha, 2. Persona, 3. Concepto, 4. Monto, 5. Tipo
+                    val_excel = str(v).replace(".", ",")
+                    # Guarda: Fecha, Persona, Concepto, Monto, Tipo
                     hoja_deudas.append_row([date.today().strftime("%d/%m/%Y"), p, c, val_excel, tg])
-                    st.toast("Deuda registrada")
-                    st.cache_data.clear(); st.rerun()
+                    st.toast("Deuda anotada")
+                    st.cache_data.clear()
+                    st.rerun()
                 else:
-                    st.warning("El importe debe ser mayor a 0")
+                    st.warning("Importe inválido")
+
     try:
-        # Forzamos lectura como TEXTO para evitar líos de puntos/comas
+        # Leemos todo como texto para evitar errores
         dd = hoja_deudas.get_all_records(numericise_ignore=['all'])
-        if dd:
+        
+        # Comprobamos si hay datos
+        if len(dd) > 0:
             st.divider()
-            for i, r in pd.DataFrame(dd).iterrows():
-                # Procesamos el texto del Excel a número Python
+            df_deudas = pd.DataFrame(dd)
+            
+            for i, r in df_deudas.iterrows():
                 imp = procesar_texto_a_numero(r['Monto'])
                 
                 with st.container():
-                    c1, c2 = st.columns([4,1])
-                    with c1:
-                        pre = "🔴 Debo a" if r['Tipo']=="DEBO" else "🟢 Me debe"
-                        st.markdown(f"{pre} **{r['Persona']}**: {formato_visual(imp)}")
-                        st.caption(f"{r['Concepto']} | {r['Fecha']}")
-                    with c2:
-                        st.write("") # Espaciador
-                        if st.button("✅", key=f"s{i}"):
-                            hoja_deudas.delete_rows(i+2); st.toast("Saldado"); st.cache_data.clear(); st.rerun()
-        else: st.caption("No tienes deudas pendientes.")
-    except: pass
+                    c_info, c_check = st.columns([4, 1])
+                    
+                    with c_info:
+                        if r['Tipo'] == "DEBO":
+                            st.error(f"🔴 Debo a **{r['Persona']}**: {formato_visual(imp)}")
+                        else:
+                            st.success(f"🟢 Me debe **{r['Persona']}**: {formato_visual(imp)}")
+                        
+                        st.caption(f"Motivo: {r['Concepto']} | Fecha: {r['Fecha']}")
+                    
+                    with c_check:
+                        st.write("") # Espacio para centrar botón
+                        # BOTÓN DE CUMPLIDA
+                        if st.button("✅", key=f"pay_{i}", help="Marcar como cumplida/pagada"):
+                            hoja_deudas.delete_rows(i + 2) # Borra la fila
+                            st.balloons() # ¡Fiesta!
+                            st.toast("¡Deuda liquidada!")
+                            st.cache_data.clear()
+                            st.rerun()
+        else:
+            st.info("¡Todo en orden! No hay deudas pendientes.")
+            
+    except Exception as e:
+        st.warning("No se pudieron cargar las deudas (Prueba el botón Reiniciar en el menú lateral).")
